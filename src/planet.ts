@@ -220,12 +220,6 @@ vec3 biomeColor(float hN, float temp, float moisture, float seaLvl, vec3 dir, ve
 
   float landH = (hN - beachTop) / max(0.01, 1.0 - beachTop);
 
-  if (landH > 0.70) {
-    float t = min(1.0, (landH - 0.70) / 0.20);
-    return mix(vec3(0.541, 0.514, 0.478), vec3(1.0), t); // rock → snow
-  }
-  if (landH > 0.50) return vec3(0.478, 0.478, 0.416); // exposed rock
-
   // High-frequency warp to break up biome boundary regularity
   float warpT = snoise((dir + offT * 0.013) * 11.0) * 0.13
               + snoise((dir + offT * 0.007) * 23.0) * 0.05;
@@ -233,6 +227,11 @@ vec3 biomeColor(float hN, float temp, float moisture, float seaLvl, vec3 dir, ve
               + snoise((dir + offM * 0.007) * 21.0) * 0.05;
   float bt = clamp(temp     + warpT, -1.0, 1.0);
   float bm = clamp(moisture + warpM, -1.0, 1.0);
+
+  // Elevation lapse rate: cubic curve keeps low-elevation areas unaffected
+  // while aggressively cooling only true peaks (landH^3 is ~0 at foothills,
+  // surges to 3.0 at the summit — driving any peak past the snow threshold).
+  bt = clamp(bt - pow(landH, 3.0) * 3.0, -1.0, 1.0);
 
   if (bt < -0.60) {
     float t = min(1.0, (-bt - 0.55) / 0.20);
