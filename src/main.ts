@@ -51,7 +51,7 @@ scene.add(sun);
 // ---------------------------------------------------------------------------
 const params: PlanetParams = { ...DEFAULT_PARAMS, seed: Math.random() };
 
-const planet = new Planet(params);
+const planet = new Planet(params, renderer);
 scene.add(planet.group);
 
 // ---------------------------------------------------------------------------

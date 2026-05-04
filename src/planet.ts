@@ -80,93 +80,171 @@ function fbm(
   return val / total;
 }
 
-/** Linear interpolation of a single 0-255 colour channel — no heap allocation. */
-function lerpC(a: number, b: number, t: number): number {
-  return (a + (b - a) * t + 0.5) | 0;
+// ---------------------------------------------------------------------------
+// GLSL shaders for GPU texture baking
+// ---------------------------------------------------------------------------
+
+const BAKE_VERT = /* glsl */`
+varying vec2 vUv;
+void main() {
+  vUv = uv;
+  // PlaneGeometry(2,2) already spans clip space — skip all matrix math
+  gl_Position = vec4(position.xy, 0.0, 1.0);
+}
+`;
+
+const BAKE_FRAG = /* glsl */`
+precision highp float;
+varying vec2 vUv;
+
+uniform float uHMin;
+uniform float uHMax;
+uniform float uSeaLevel;
+uniform float uContinentScale;
+uniform int   uContinentOctaves;
+uniform float uBiomeScale;
+uniform float uDetailScale;
+uniform float uDetailStrength;
+uniform int   uDebugTerrain;
+uniform int   uMode; // 0 = colour, 1 = displacement grayscale
+
+// Per-layer seed offsets (computed from seed on CPU, applied to noise input)
+uniform vec3 uOffContinent;
+uniform vec3 uOffDetail;
+uniform vec3 uOffTemp;
+uniform vec3 uOffMoisture;
+
+// ---------------------------------------------------------------------------
+// Simplex 3D noise — Ashima Arts (MIT licence)
+// ---------------------------------------------------------------------------
+vec3 mod289v3(vec3 x){return x-floor(x*(1./289.))*289.;}
+vec4 mod289v4(vec4 x){return x-floor(x*(1./289.))*289.;}
+vec4 permute(vec4 x){return mod289v4(((x*34.)+10.)*x);}
+vec4 taylorInvSqrt(vec4 r){return 1.79284291400159-.85373472095314*r;}
+float snoise(vec3 v){
+  const vec2 C=vec2(1./6.,1./3.);
+  const vec4 D=vec4(0.,.5,1.,2.);
+  vec3 i=floor(v+dot(v,C.yyy));
+  vec3 x0=v-i+dot(i,C.xxx);
+  vec3 g=step(x0.yzx,x0.xyz);
+  vec3 l=1.-g;
+  vec3 i1=min(g.xyz,l.zxy);
+  vec3 i2=max(g.xyz,l.zxy);
+  vec3 x1=x0-i1+C.xxx;
+  vec3 x2=x0-i2+C.yyy;
+  vec3 x3=x0-D.yyy;
+  i=mod289v3(i);
+  vec4 p=permute(permute(permute(
+    i.z+vec4(0.,i1.z,i2.z,1.))+
+    i.y+vec4(0.,i1.y,i2.y,1.))+
+    i.x+vec4(0.,i1.x,i2.x,1.));
+  float n_=.142857142857;
+  vec3 ns=n_*D.wyz-D.xzx;
+  vec4 j=p-49.*floor(p*ns.z*ns.z);
+  vec4 x_=floor(j*ns.z);
+  vec4 y_=floor(j-7.*x_);
+  vec4 x=x_*ns.x+ns.yyyy;
+  vec4 y=y_*ns.x+ns.yyyy;
+  vec4 h=1.-abs(x)-abs(y);
+  vec4 b0=vec4(x.xy,y.xy);
+  vec4 b1=vec4(x.zw,y.zw);
+  vec4 s0=floor(b0)*2.+1.;
+  vec4 s1=floor(b1)*2.+1.;
+  vec4 sh=-step(h,vec4(0.));
+  vec4 a0=b0.xzyw+s0.xzyw*sh.xxyy;
+  vec4 a1=b1.xzyw+s1.xzyw*sh.zzww;
+  vec3 p0=vec3(a0.xy,h.x);
+  vec3 p1=vec3(a0.zw,h.y);
+  vec3 p2=vec3(a1.xy,h.z);
+  vec3 p3=vec3(a1.zw,h.w);
+  vec4 norm=taylorInvSqrt(vec4(dot(p0,p0),dot(p1,p1),dot(p2,p2),dot(p3,p3)));
+  p0*=norm.x;p1*=norm.y;p2*=norm.z;p3*=norm.w;
+  vec4 m=max(.6-vec4(dot(x0,x0),dot(x1,x1),dot(x2,x2),dot(x3,x3)),0.);
+  m=m*m;
+  return 42.*dot(m*m,vec4(dot(p0,x0),dot(p1,x1),dot(p2,x2),dot(p3,x3)));
 }
 
-/**
- * Map normalised height + biome values to a terrain colour.
- * Writes RGB directly into `data[idx..idx+2]` — no THREE.Color allocations.
- *
- * @param hN  Calibrated height in [0, 1]  (0 = deepest ocean floor, 1 = highest peak)
- * @param temp     Temperature noise roughly -1..1
- * @param moisture Moisture   noise roughly -1..1
- * @param seaLvl   Sea-level threshold in [0, 1]
- */
-function biomeColor(
-  data: Uint8ClampedArray, idx: number,
-  hN: number, temp: number, moisture: number, seaLvl: number,
-): void {
-  // --- Ocean floor (texture only — ocean sphere mesh provides water appearance) ---
+float fbm(vec3 p, vec3 offset, float scale, int octaves, float persistence, float lacunarity) {
+  float val = 0.0, amp = 1.0, freq = scale, total = 0.0;
+  for (int i = 0; i < 8; i++) {
+    if (i >= octaves) break;
+    val   += snoise((p + offset) * freq) * amp;
+    total += amp;
+    amp   *= persistence;
+    freq  *= lacunarity;
+  }
+  return val / total;
+}
+
+// ---------------------------------------------------------------------------
+// Biome colour logic  (mirrors planet.ts CPU version)
+// ---------------------------------------------------------------------------
+vec3 biomeColor(float hN, float temp, float moisture, float seaLvl) {
   if (hN < seaLvl) {
-    const t = (1 - hN / seaLvl) * 0.75; // 0 = shore, 1 = deepest
-    data[idx]     = lerpC(0xc8, 0x6a, t);
-    data[idx + 1] = lerpC(0xb4, 0x5a, t);
-    data[idx + 2] = lerpC(0x72, 0x30, t);
-    return;
+    float t = (1.0 - hN / seaLvl) * 0.75;
+    return mix(vec3(0.784, 0.706, 0.447), vec3(0.416, 0.353, 0.188), t);
   }
+  float beachTop = seaLvl + 0.04;
+  if (hN < beachTop) return vec3(0.831, 0.737, 0.471);
 
-  const beachTop = seaLvl + 0.04;
+  float landH = (hN - beachTop) / max(0.01, 1.0 - beachTop);
 
-  // --- Beach / shore ---
-  if (hN < beachTop) {
-    data[idx] = 0xd4; data[idx + 1] = 0xbc; data[idx + 2] = 0x78;
-    return;
-  }
-
-  // Remap land to [0, 1] with 0 = beach, 1 = highest peak
-  const landH = (hN - beachTop) / Math.max(0.01, 1 - beachTop);
-
-  // --- High altitude ---
   if (landH > 0.70) {
-    const t = Math.min(1, (landH - 0.70) / 0.20); // rock → snow
-    data[idx]     = lerpC(0x8a, 0xff, t);
-    data[idx + 1] = lerpC(0x83, 0xff, t);
-    data[idx + 2] = lerpC(0x7a, 0xff, t);
-    return;
+    float t = min(1.0, (landH - 0.70) / 0.20);
+    return mix(vec3(0.541, 0.514, 0.478), vec3(1.0), t); // rock → snow
   }
-  if (landH > 0.50) { // exposed rock
-    data[idx] = 0x7a; data[idx + 1] = 0x7a; data[idx + 2] = 0x6a;
-    return;
-  }
+  if (landH > 0.50) return vec3(0.478, 0.478, 0.416); // exposed rock
 
-  // --- Biome band (driven by temp + moisture) ---
   if (temp < -0.35) {
-    const t = Math.min(1, (-temp - 0.35) / 0.30); // tundra → ice
-    data[idx]     = lerpC(0xb8, 0xff, t);
-    data[idx + 1] = lerpC(0xd4, 0xff, t);
-    data[idx + 2] = lerpC(0xc8, 0xff, t);
-    return;
+    float t = min(1.0, (-temp - 0.35) / 0.30);
+    return mix(vec3(0.722, 0.831, 0.784), vec3(1.0), t); // tundra → ice
   }
-  if (temp > 0.30 && moisture < -0.20) { // desert
-    data[idx] = 0xc8; data[idx + 1] = 0xa0; data[idx + 2] = 0x50;
-  } else if (temp > 0.20 && moisture > 0.25) { // tropical forest
-    data[idx] = 0x1a; data[idx + 1] = 0x6b; data[idx + 2] = 0x1a;
-  } else if (temp < 0.00) { // taiga / conifer
-    data[idx] = 0x3a; data[idx + 1] = 0x7a; data[idx + 2] = 0x42;
-  } else if (moisture > 0.05) { // temperate forest
-    data[idx] = 0x2d; data[idx + 1] = 0x8c; data[idx + 2] = 0x3a;
-  } else { // grassland
-    data[idx] = 0x7a; data[idx + 1] = 0xb8; data[idx + 2] = 0x48;
-  }
+  if (temp > 0.30 && moisture < -0.20) return vec3(0.784, 0.627, 0.314); // desert
+  if (temp > 0.20 && moisture >  0.25)  return vec3(0.102, 0.420, 0.102); // tropical
+  if (temp < 0.00)                       return vec3(0.227, 0.478, 0.259); // taiga
+  if (moisture > 0.05)                   return vec3(0.176, 0.549, 0.227); // temp. forest
+  return vec3(0.478, 0.722, 0.282); // grassland
 }
 
-/**
- * Debug view: pure greyscale land height + solid blue ocean.
- * Writes directly into `data[idx..idx+2]` — no heap allocation.
- */
-function debugColor(data: Uint8ClampedArray, idx: number, hN: number, seaLvl: number): void {
+vec3 debugColor(float hN, float seaLvl) {
   if (hN < seaLvl) {
-    const depth = 1 - hN / seaLvl;
-    data[idx]     = (0.05 * 255 + 0.5) | 0;
-    data[idx + 1] = ((0.25 - depth * 0.15) * 255 + 0.5) | 0;
-    data[idx + 2] = ((0.55 - depth * 0.20) * 255 + 0.5) | 0;
+    float depth = 1.0 - hN / seaLvl;
+    return vec3(0.05, 0.25 - depth * 0.15, 0.55 - depth * 0.20);
+  }
+  float v = (hN - seaLvl) / max(0.01, 1.0 - seaLvl);
+  return vec3(v);
+}
+
+void main() {
+  // Reconstruct unit-sphere direction from equirectangular UV
+  // (matches Three.js SphereGeometry vertex convention exactly)
+  float phi   = vUv.y * 3.14159265359;
+  float theta = vUv.x * 6.28318530718;
+  float sinPhi = sin(phi), cosPhi = cos(phi);
+  vec3 dir = vec3(-sinPhi * cos(theta), cosPhi, sinPhi * sin(theta));
+
+  float continent = fbm(dir, uOffContinent, uContinentScale, uContinentOctaves, 0.50, 2.0);
+  float detail    = fbm(dir, uOffDetail,    uDetailScale,    4,                  0.45, 2.1) * uDetailStrength;
+  float h         = continent + detail;
+  float temp      = fbm(dir, uOffTemp,     uBiomeScale,        3, 0.55, 2.0);
+  float moisture  = fbm(dir, uOffMoisture, uBiomeScale * 0.8,  3, 0.50, 2.0);
+
+  // Normalise h to [0,1] using CPU-calibrated range
+  float range = max(0.0001, uHMax - uHMin);
+  float hN    = clamp((h - uHMin) / range, 0.0, 1.0);
+
+  vec3 col = uDebugTerrain != 0
+    ? debugColor(hN, uSeaLevel)
+    : biomeColor(hN, temp, moisture, uSeaLevel);
+
+  // uMode 0 = colour output, 1 = grayscale hN for displacement map
+  if (uMode == 1) {
+    gl_FragColor = vec4(hN, hN, hN, 1.0);
   } else {
-    const v = ((hN - seaLvl) / Math.max(0.01, 1 - seaLvl) * 255 + 0.5) | 0;
-    data[idx] = data[idx + 1] = data[idx + 2] = v;
+    gl_FragColor = vec4(col, 1.0);
   }
 }
+`;
 
 // ---------------------------------------------------------------------------
 // Planet class
@@ -180,11 +258,15 @@ export class Planet {
   mesh!: THREE.Mesh;
   oceanMesh!: THREE.Mesh;
 
-  // Noise instances — one per layer so each layer is truly independent
-  private _nContinent!: SimplexNoise;
-  private _nTemp!: SimplexNoise;
-  private _nMoisture!: SimplexNoise;
-  private _nDetail!: SimplexNoise;
+  private _renderer: THREE.WebGLRenderer;
+
+  // Single shared noise instance — layers are separated by coordinate offsets,
+  // matching the GPU shader exactly so geometry and texture stay aligned.
+  private _noise!: SimplexNoise;
+  private _offContinent!: THREE.Vector3;
+  private _offDetail!: THREE.Vector3;
+  private _offTemp!: THREE.Vector3;
+  private _offMoisture!: THREE.Vector3;
 
   /**
    * Calibrated min/max of the raw h noise field.
@@ -194,8 +276,18 @@ export class Planet {
   private _hMin = -1;
   private _hMax =  1;
 
-  constructor(params: Partial<PlanetParams> = {}) {
-    this.params = { ...DEFAULT_PARAMS, ...params };
+  // Reusable GPU bake objects — created once, reused on every rebuild
+  private _bakeScene!:  THREE.Scene;
+  private _bakeCam!:    THREE.OrthographicCamera;
+  private _bakeQuad!:   THREE.Mesh;
+  private _bakeMat!:    THREE.ShaderMaterial;
+  private _bakeTarget!: THREE.WebGLRenderTarget; // colour
+  private _dispTarget!: THREE.WebGLRenderTarget; // grayscale hN for displacementMap
+
+  constructor(params: Partial<PlanetParams> = {}, renderer: THREE.WebGLRenderer) {
+    this.params    = { ...DEFAULT_PARAMS, ...params };
+    this._renderer = renderer;
+    this._initBakePipeline();
     this.rebuild();
   }
 
@@ -204,11 +296,11 @@ export class Planet {
   // -------------------------------------------------------------------------
 
   private _buildNoise(): void {
-    const s = this.params.seed.toString();
-    this._nContinent = new SimplexNoise(s + '_cont');
-    this._nTemp      = new SimplexNoise(s + '_temp');
-    this._nMoisture  = new SimplexNoise(s + '_mois');
-    this._nDetail    = new SimplexNoise(s + '_det');
+    this._noise       = new SimplexNoise(this.params.seed.toString());
+    this._offContinent = this._layerOffset(0);
+    this._offDetail    = this._layerOffset(1);
+    this._offTemp      = this._layerOffset(2);
+    this._offMoisture  = this._layerOffset(3);
   }
 
   /**
@@ -250,100 +342,120 @@ export class Planet {
   /** Sample all four noise layers at a unit-sphere point (x, y, z). */
   private _sample(x: number, y: number, z: number): SampleResult {
     const { continentScale, continentOctaves, biomeScale, detailScale, detailStrength } = this.params;
-    const continent = fbm(this._nContinent, x, y, z, continentScale, continentOctaves, 0.50, 2.0);
-    const detail    = fbm(this._nDetail,    x, y, z, detailScale,    4,                0.45, 2.1) * detailStrength;
-    const h         = continent + detail;
-    const temp      = fbm(this._nTemp,     x, y, z, biomeScale,       3, 0.55, 2.0);
-    const moisture  = fbm(this._nMoisture, x, y, z, biomeScale * 0.8, 3, 0.50, 2.0);
+    // Pre-add per-layer offsets so the CPU uses the same noise field as the GPU shader
+    const continent = fbm(this._noise,
+      x + this._offContinent.x, y + this._offContinent.y, z + this._offContinent.z,
+      continentScale, continentOctaves, 0.50, 2.0);
+    const detail = fbm(this._noise,
+      x + this._offDetail.x, y + this._offDetail.y, z + this._offDetail.z,
+      detailScale, 4, 0.45, 2.1) * detailStrength;
+    const h = continent + detail;
+    const temp = fbm(this._noise,
+      x + this._offTemp.x, y + this._offTemp.y, z + this._offTemp.z,
+      biomeScale, 3, 0.55, 2.0);
+    const moisture = fbm(this._noise,
+      x + this._offMoisture.x, y + this._offMoisture.y, z + this._offMoisture.z,
+      biomeScale * 0.8, 3, 0.50, 2.0);
     return { h, temp, moisture };
   }
 
   // -------------------------------------------------------------------------
-  // Geometry
+  // GPU texture baking
   // -------------------------------------------------------------------------
 
   /**
-   * Displace sphere vertices:
-   *  - Below seaLevel  → recessed inside the ocean sphere  (radius - depth * elevation * 0.5)
-   *  - Above seaLevel  → raised above the ocean sphere     (ocean_r + gap + aboveSea * elevation)
-   *
-   * OCEAN_R = radius + 0.002  (the actual ocean mesh radius)
-   * Land vertices start at OCEAN_R + 0.002 so even a barely-above-sea-level
-   * beach still pokes out of the water sphere without z-fighting.
+   * Create the reusable off-screen bake pipeline once.
+   * A PlaneGeometry(2,2) covers clip space exactly, so the ortho camera +
+   * render target give us a full rect render without any matrix transforms.
    */
-  private _displaceGeometry(geo: THREE.SphereGeometry): void {
-    const { seaLevel, elevation, radius } = this.params;
-    const OCEAN_R   = radius + 0.002; // must match _buildOcean
-    const LAND_BASE = OCEAN_R  + 0.002;
-    const pos = geo.attributes.position as THREE.BufferAttribute;
-    const v   = new THREE.Vector3();
+  private _initBakePipeline(): void {
+    const { textureWidth: W, textureHeight: H } = this.params;
 
-    for (let i = 0; i < pos.count; i++) {
-      v.fromBufferAttribute(pos, i).normalize();
-      const { h } = this._sample(v.x, v.y, v.z);
-      const hN    = this._norm(h); // calibrated [0, 1]
+    this._bakeScene  = new THREE.Scene();
+    this._bakeCam    = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 
-      let r: number;
-      if (hN <= seaLevel) {
-        // Sink ocean floor — deeper = more recessed
-        const depth = 1 - hN / Math.max(0.0001, seaLevel); // 0 = at shore, 1 = deepest
-        r = radius - depth * elevation * 0.5;
-      } else {
-        // Raise land proportionally above the ocean sphere
-        const aboveSea = (hN - seaLevel) / Math.max(0.01, 1 - seaLevel);
-        r = LAND_BASE + aboveSea * elevation;
-      }
+    this._bakeTarget = new THREE.WebGLRenderTarget(W, H, {
+      minFilter:  THREE.LinearFilter,
+      magFilter:  THREE.LinearFilter,
+      colorSpace: THREE.SRGBColorSpace,
+    });
+    // Displacement map must be linear (not sRGB) so heights are not gamma-corrected
+    this._dispTarget = new THREE.WebGLRenderTarget(W, H, {
+      minFilter:  THREE.LinearFilter,
+      magFilter:  THREE.LinearFilter,
+    });
 
-      v.multiplyScalar(r);
-      pos.setXYZ(i, v.x, v.y, v.z);
-    }
-    geo.computeVertexNormals();
+    this._bakeMat = new THREE.ShaderMaterial({
+      vertexShader:   BAKE_VERT,
+      fragmentShader: BAKE_FRAG,
+      uniforms: {
+        uHMin:             { value: this._hMin },
+        uHMax:             { value: this._hMax },
+        uSeaLevel:         { value: this.params.seaLevel },
+        uContinentScale:   { value: this.params.continentScale },
+        uContinentOctaves: { value: this.params.continentOctaves },
+        uBiomeScale:       { value: this.params.biomeScale },
+        uDetailScale:      { value: this.params.detailScale },
+        uDetailStrength:   { value: this.params.detailStrength },
+        uDebugTerrain:     { value: this.params.debugTerrain ? 1 : 0 },
+        uMode:             { value: 0 },
+        uOffContinent:     { value: this._layerOffset(0) },
+        uOffDetail:        { value: this._layerOffset(1) },
+        uOffTemp:          { value: this._layerOffset(2) },
+        uOffMoisture:      { value: this._layerOffset(3) },
+      },
+    });
+
+    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this._bakeMat);
+    this._bakeScene.add(quad);
+    this._bakeQuad = quad;
   }
 
-  // -------------------------------------------------------------------------
-  // Texture
-  // -------------------------------------------------------------------------
+  /**
+   * Compute a deterministic vec3 offset from the seed for a given layer index.
+   * Adding this offset to the noise input coordinates "seeds" that layer.
+   */
+  private _layerOffset(layer: number): THREE.Vector3 {
+    const s = this.params.seed;
+    const hash = (n: number) => { const x = Math.sin(n) * 43758.5453123; return x - Math.floor(x); };
+    return new THREE.Vector3(
+      (hash(s * 127.1 + layer * 311.7) - 0.5) * 200,
+      (hash(s * 269.5 + layer * 183.3) - 0.5) * 200,
+      (hash(s * 113.9 + layer * 537.1) - 0.5) * 200,
+    );
+  }
 
-  /** Bake a full-resolution equirectangular canvas texture. */
-  private _buildTexture(): THREE.CanvasTexture {
-    const { textureWidth: W, textureHeight: H, seaLevel, debugTerrain } = this.params;
-    const canvas = document.createElement('canvas');
-    canvas.width  = W;
-    canvas.height = H;
-    const ctx  = canvas.getContext('2d')!;
-    const img  = ctx.createImageData(W, H);
-    const data = img.data;
+  /** Render colour + displacement textures to their respective render targets. */
+  private _bakeGPUTextures(): { colorTex: THREE.Texture; dispTex: THREE.Texture } {
+    const u = this._bakeMat.uniforms;
+    const p = this.params;
+    u.uHMin.value             = this._hMin;
+    u.uHMax.value             = this._hMax;
+    u.uSeaLevel.value         = p.seaLevel;
+    u.uContinentScale.value   = p.continentScale;
+    u.uContinentOctaves.value = p.continentOctaves;
+    u.uBiomeScale.value       = p.biomeScale;
+    u.uDetailScale.value      = p.detailScale;
+    u.uDetailStrength.value   = p.detailStrength;
+    u.uDebugTerrain.value     = p.debugTerrain ? 1 : 0;
+    u.uOffContinent.value     = this._layerOffset(0);
+    u.uOffDetail.value        = this._layerOffset(1);
+    u.uOffTemp.value          = this._layerOffset(2);
+    u.uOffMoisture.value      = this._layerOffset(3);
 
-    for (let py = 0; py < H; py++) {
-      const phi    = (py / H) * Math.PI;
-      const sinPhi = Math.sin(phi);
-      const cosPhi = Math.cos(phi);
-      for (let px = 0; px < W; px++) {
-        const theta = (px / W) * 2 * Math.PI;
-        // Match Three.js SphereGeometry vertex convention exactly:
-        //   x = -cos(theta) * sin(phi)
-        //   y =  cos(phi)
-        //   z =  sin(theta) * sin(phi)
-        const x = -sinPhi * Math.cos(theta);
-        const y = cosPhi;
-        const z = sinPhi * Math.sin(theta);
+    // Pass 1: colour
+    u.uMode.value = 0;
+    this._renderer.setRenderTarget(this._bakeTarget);
+    this._renderer.render(this._bakeScene, this._bakeCam);
 
-        const { h, temp, moisture } = this._sample(x, y, z);
-        const hN  = this._norm(h); // calibrated — same scale as _displaceGeometry
-        const idx = (py * W + px) * 4;
-        if (debugTerrain) {
-          debugColor(data, idx, hN, seaLevel);
-        } else {
-          biomeColor(data, idx, hN, temp, moisture, seaLevel);
-        }
-        data[idx + 3] = 255;
-      }
-    }
+    // Pass 2: grayscale hN for displacementMap
+    u.uMode.value = 1;
+    this._renderer.setRenderTarget(this._dispTarget);
+    this._renderer.render(this._bakeScene, this._bakeCam);
 
-    ctx.putImageData(img, 0, 0);
-    const tex = new THREE.CanvasTexture(canvas);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    return tex;
+    this._renderer.setRenderTarget(null);
+
+    return { colorTex: this._bakeTarget.texture, dispTex: this._dispTarget.texture };
   }
 
   // -------------------------------------------------------------------------
@@ -351,9 +463,11 @@ export class Planet {
   // -------------------------------------------------------------------------
 
   private _buildOcean(): void {
-    const { radius, segments } = this.params;
+    const { radius, segments, seaLevel, elevation } = this.params;
+    // Sits at exactly the height where hN = seaLevel in _displaceGeometry
+    const oceanRadius = radius + seaLevel * elevation;
     const oceanGeo = new THREE.SphereGeometry(
-      radius + 0.002,          // OCEAN_R — must match OCEAN_R in _displaceGeometry
+      oceanRadius,
       Math.max(64, segments),
       Math.max(64, segments),
     );
@@ -383,29 +497,32 @@ export class Planet {
   // -------------------------------------------------------------------------
 
   private _createMesh(): void {
-    const { radius, segments } = this.params;
-    const geo = new THREE.SphereGeometry(radius, segments, segments);
-    const startTume = performance.now();
-    this._displaceGeometry(geo);
-    const endTime = performance.now();
-    console.log(`Geometry displaced in ${(endTime - startTume).toFixed(2)} ms`);
+    const { radius, segments, elevation } = this.params;
 
     const texBuildStart = performance.now();
-    const tex = this._buildTexture();
-    const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.9, metalness: 0.0 });
+    const { colorTex, dispTex } = this._bakeGPUTextures();
+    console.log(`Textures baked (GPU) in ${(performance.now() - texBuildStart).toFixed(2)} ms`);
+
+    // GPU displacement map: both colour and height are from the same noise evaluation,
+    // so their biome edges are pixel-perfect aligned — no CPU/GPU noise mismatch.
+    const geo = new THREE.SphereGeometry(radius, segments, segments);
+    const mat = new THREE.MeshStandardMaterial({
+      map:               colorTex,
+      displacementMap:   dispTex,
+      displacementScale: elevation,
+      displacementBias:  0,
+      roughness:         0.9,
+      metalness:         0.0,
+    });
 
     if (this.mesh) {
       this.mesh.geometry.dispose();
-      (this.mesh.material as THREE.MeshStandardMaterial).map?.dispose();
       (this.mesh.material as THREE.Material).dispose();
       this.mesh.geometry = geo;
       this.mesh.material = mat;
     } else {
       this.mesh = new THREE.Mesh(geo, mat);
     }
-
-    const texBuildEnd = performance.now();
-    console.log(`Texture built in ${(texBuildEnd - texBuildStart).toFixed(2)} ms`);
 
     this._buildOcean();
 
@@ -434,6 +551,12 @@ export class Planet {
     this._calibrate();
     const step2Time = performance.now();
     console.log(`Noise calibrated in ${(step2Time - step1Time).toFixed(2)} ms`);
+    // Resize render targets if resolution params changed
+    const { textureWidth: W, textureHeight: H } = this.params;
+    if (this._bakeTarget.width !== W || this._bakeTarget.height !== H) {
+      this._bakeTarget.setSize(W, H);
+      this._dispTarget.setSize(W, H);
+    }
     this._createMesh();
     const endTime = performance.now();
     console.log(`Planet rebuilt in ${(endTime - startTime).toFixed(2)} ms`);
