@@ -68,9 +68,13 @@ shapeFolder.add(params, 'seaLevel',  0.0,  0.85, 0.01).name('sea level').onFinis
 const noiseFolder = gui.addFolder('Noise');
 noiseFolder.add(params, 'continentScale',   0.3, 4.0,  0.05).name('continent scale'  ).onFinishChange(rebuild);
 noiseFolder.add(params, 'continentOctaves', 1,   8,    1   ).name('continent octaves').onFinishChange(rebuild);
-noiseFolder.add(params, 'biomeScale',       0.5, 6.0,  0.05).name('biome scale'      ).onFinishChange(rebuild);
+noiseFolder.add(params, 'biomeScale',       0.5, 6.0,  0.05).name('climate noise scale').onFinishChange(rebuild);
 noiseFolder.add(params, 'detailScale',      2.0, 20.0, 0.5 ).name('detail scale'     ).onFinishChange(rebuild);
 noiseFolder.add(params, 'detailStrength',   0,   0.5,  0.01).name('detail strength'  ).onFinishChange(rebuild);
+
+const climateFolder = gui.addFolder('Climate');
+climateFolder.add(params, 'tempOffset',     -1.0, 1.0, 0.01).name('temperature offset').onFinishChange(rebuild);
+climateFolder.add(params, 'moistureOffset', -1.0, 1.0, 0.01).name('moisture offset'   ).onFinishChange(rebuild);
 
 const seedFolder  = gui.addFolder('Seed');
 const seedCtrl    = seedFolder.add(params, 'seed').onFinishChange(rebuild);

@@ -14,6 +14,9 @@ export interface PlanetParams {
   continentOctaves: number;
   // Biome noise layers (temperature + moisture)
   biomeScale: number;
+  // Climate additive offsets applied after latitude function + noise  [-1 .. 1]
+  tempOffset: number;
+  moistureOffset: number;
   // High-frequency detail layer
   detailScale: number;
   detailStrength: number;
@@ -48,6 +51,8 @@ export const DEFAULT_PARAMS: PlanetParams = {
   continentScale: 1.2,
   continentOctaves: 5,
   biomeScale: 2.2,
+  tempOffset: 0,
+  moistureOffset: 0,
   detailScale: 7.0,
   detailStrength: 0.18,
   elevation: 0.22,
@@ -107,6 +112,9 @@ uniform float uDetailScale;
 uniform float uDetailStrength;
 uniform int   uDebugTerrain;
 uniform int   uMode; // 0 = colour, 1 = displacement grayscale
+// Climate additive offsets (sliders)
+uniform float uTempOffset;
+uniform float uMoistureOffset;
 
 // Per-layer seed offsets (computed from seed on CPU, applied to noise input)
 uniform vec3 uOffContinent;
@@ -226,8 +234,31 @@ void main() {
   float continent = fbm(dir, uOffContinent, uContinentScale, uContinentOctaves, 0.50, 2.0);
   float detail    = fbm(dir, uOffDetail,    uDetailScale,    4,                  0.45, 2.1) * uDetailStrength;
   float h         = continent + detail;
-  float temp      = fbm(dir, uOffTemp,     uBiomeScale,        3, 0.55, 2.0);
-  float moisture  = fbm(dir, uOffMoisture, uBiomeScale * 0.8,  3, 0.50, 2.0);
+
+  // ---------------------------------------------------------------------------
+  // Latitude-based climate  (geographic latitude: 0 = equator, PI/2 = poles)
+  // ---------------------------------------------------------------------------
+  // abs(cosPhi) = sin(geographic latitude), goes 0→equator, 1→poles
+  float sinLat = abs(cosPhi);
+
+  // Temperature: linear decline equator (+1) → poles (-1)
+  float baseTemp = 1.0 - 2.0 * sinLat;
+
+  // Moisture: cos(6·lat_rad) reproduces the wind-belt pattern —
+  //   0°  (ITCZ)        → +1  max  (equatorial rainforest)
+  //   30° (subtropical) → −1  min  (trade-wind deserts)
+  //   60° (subpolar)    → +1  2nd max  (temperate forests)
+  //   90° (polar)       → −1  min  (polar desert)
+  float lat = asin(sinLat); // geographic latitude in radians [0, PI/2]
+  float baseMoist = cos(6.0 * lat);
+
+  // Noise perturbation on top of the base patterns
+  float noiseTemp  = fbm(dir, uOffTemp,     uBiomeScale,       3, 0.55, 2.0);
+  float noiseMoist = fbm(dir, uOffMoisture, uBiomeScale * 0.8, 3, 0.50, 2.0);
+
+  // Additive slider offsets applied last
+  float temp     = clamp(baseTemp  + noiseTemp  * 0.35 + uTempOffset,     -1.0, 1.0);
+  float moisture = clamp(baseMoist + noiseMoist * 0.35 + uMoistureOffset, -1.0, 1.0);
 
   // Normalise h to [0,1] using CPU-calibrated range
   float range = max(0.0001, uHMax - uHMin);
@@ -403,6 +434,8 @@ export class Planet {
         uDetailStrength:   { value: this.params.detailStrength },
         uDebugTerrain:     { value: this.params.debugTerrain ? 1 : 0 },
         uMode:             { value: 0 },
+        uTempOffset:       { value: this.params.tempOffset },
+        uMoistureOffset:   { value: this.params.moistureOffset },
         uOffContinent:     { value: this._layerOffset(0) },
         uOffDetail:        { value: this._layerOffset(1) },
         uOffTemp:          { value: this._layerOffset(2) },
@@ -442,6 +475,8 @@ export class Planet {
     u.uDetailScale.value      = p.detailScale;
     u.uDetailStrength.value   = p.detailStrength;
     u.uDebugTerrain.value     = p.debugTerrain ? 1 : 0;
+    u.uTempOffset.value       = p.tempOffset;
+    u.uMoistureOffset.value   = p.moistureOffset;
     u.uOffContinent.value     = this._layerOffset(0);
     u.uOffDetail.value        = this._layerOffset(1);
     u.uOffTemp.value          = this._layerOffset(2);
