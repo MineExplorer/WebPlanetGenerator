@@ -19,11 +19,23 @@ container.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x080d1a);
 
-// Star field
+// Star field — all stars placed on a shell between 80 and 200 units from origin
 {
+  const STAR_COUNT = 1000;
+  const MIN_R = 80, MAX_R = 200;
+  const pos = new Float32Array(STAR_COUNT * 3);
+  for (let i = 0; i < STAR_COUNT; i++) {
+    // Uniform direction on sphere
+    const u = Math.random(), v = Math.random();
+    const theta = 2 * Math.PI * u;
+    const phi   = Math.acos(2 * v - 1);
+    const r     = MIN_R + Math.random() * (MAX_R - MIN_R);
+    pos[i * 3 + 0] = r * Math.sin(phi) * Math.cos(theta);
+    pos[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
+    pos[i * 3 + 2] = r * Math.cos(phi);
+  }
   const starGeo = new THREE.BufferGeometry();
-  const positions = new Float32Array(3000).map(() => (Math.random() - 0.5) * 400);
-  starGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  starGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.25 })));
 }
 

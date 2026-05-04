@@ -61,7 +61,7 @@ export const DEFAULT_PARAMS: PlanetParams = {
   tempOffset: 0.25,
   moistureOffset: 0,
   detailScale: 12.0,
-  detailStrength: 0.18,
+  detailStrength: 0.2,
   elevation: 0.18,
   seaLevel: 0.54,
   topoMap: false,

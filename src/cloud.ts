@@ -17,8 +17,7 @@ const BAKE_INTERVAL = 0.05; // seconds between cloud texture rebakes (~20fps bak
 
 // Texture resolution scales with zoom level.
 // These are the [width, height] pairs at the near/far extremes.
-const BAKE_RES_NEAR = [2048, 1024] as const; // very close zoom-in
-const BAKE_RES_FAR  = [  256, 128] as const; // far zoom-out
+const BAKE_RES_FAR  = [256, 128] as const; // far zoom-out
 // Distance multiples of planet radius that map to the near/far extremes.
 const DIST_NEAR = 1.2;  // <= this distance → max resolution
 const DIST_FAR  = 12.0; // >= this distance → min resolution
@@ -31,7 +30,7 @@ function bakeResForDist(camDist: number, radius: number): [number, number] {
     (Math.log(DIST_FAR)  - Math.log(DIST_NEAR))
   ));
   // Snap to power-of-two steps: 2048, 1024, 512, 256
-  const w = t < 0.25 ? 2048 : t < 0.50 ? 1024 : t < 0.75 ? 512 : 256;
+  const w = t < 0.42 ? 2048 : t < 0.75 ? 1024 : t < 0.95 ? 512 : 256;
   return [w, w >> 1];
 }
 
@@ -129,9 +128,9 @@ void main() {
   // Domain-warp for organic puffiness
   float ws = uCloudScale * 0.55;
   vec3 warp = vec3(
-    cfbm(dir * ws + vec3( uTime*0.013,  0.000,       0.000       ), 2),
-    cfbm(dir * ws + vec3( 0.000,        uTime*0.011, uTime*0.009 ), 2),
-    cfbm(dir * ws + vec3( uTime*0.010,  uTime*0.014, 0.000       ), 2)
+    cfbm(dir * ws + vec3( uTime*0.018,  0.000,       0.000       ), 2),
+    cfbm(dir * ws + vec3( 0.000,        uTime*0.015, uTime*0.013 ), 2),
+    cfbm(dir * ws + vec3( uTime*0.014,  uTime*0.019, 0.000       ), 2)
   );
 
   float cloud = cfbm(dir * uCloudScale + warp * 0.72, 4);
@@ -317,8 +316,9 @@ export class CloudLayer {
         this._bakeW = w;
         this._bakeH = h;
         this._bakeTarget.setSize(w, h);
-        // Force immediate re-bake at new resolution
-        this._lastBake = this._time - BAKE_INTERVAL;
+        // Re-bake immediately at the new resolution even if animation is paused
+        this._runBake();
+        this._lastBake = this._time;
       }
     }
 
