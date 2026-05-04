@@ -121,6 +121,21 @@ window.addEventListener('resize', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Pause / resume rotation
+// ---------------------------------------------------------------------------
+let paused = false;
+const hint = document.getElementById('hint') as HTMLDivElement;
+window.addEventListener('keydown', (e) => {
+  if (e.code === 'Space') {
+    e.preventDefault();
+    paused = !paused;
+    hint.innerHTML = paused
+      ? 'Paused — press <kbd>Space</kbd> to resume'
+      : 'Press <kbd>Space</kbd> to toggle rotation';
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Render loop
 // ---------------------------------------------------------------------------
 let lastTime = performance.now();
@@ -131,9 +146,9 @@ function animate(): void {
   const dt  = Math.min((now - lastTime) * 0.001, 0.05); // cap delta at 50 ms
   lastTime  = now;
 
-  planet.group.rotation.y      += 0.0008;
-  planet.cloudGroup.rotation.y += 0.00035; // clouds drift relative to surface
-  planet.tickClouds(dt);
+  planet.group.rotation.y      += paused ? 0 : 0.0008;
+  planet.cloudGroup.rotation.y += paused ? 0 : 0.00035;
+  planet.tickClouds(paused ? 0 : dt);
 
   controls.update();
   renderer.render(scene, camera);
