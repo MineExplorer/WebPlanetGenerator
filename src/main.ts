@@ -45,7 +45,8 @@ function updateZoom(): void {
 // ---------------------------------------------------------------------------
 // Lighting
 // ---------------------------------------------------------------------------
-scene.add(new THREE.AmbientLight(0x334466, 0.8));
+const ambientLight = new THREE.AmbientLight(0x334466, 0.8);
+scene.add(ambientLight);
 const sun = new THREE.DirectionalLight(0xfff4e0, 1.4);
 sun.position.set(6, 4, 5);
 scene.add(sun);
@@ -89,9 +90,15 @@ seedFolder.add({ regen() {
   rebuild();
 } }, 'regen').name('🎲 Randomise seed');
 
-const debugFolder = gui.addFolder('Debug');
-debugFolder.add(params, 'debugTerrain').name('height map only').onFinishChange(rebuild);
-debugFolder.close();
+const lightingState = { sunShadow: true };
+
+const appearanceFolder = gui.addFolder('Appearance');
+appearanceFolder.add(params, 'topoMap').name('topographic map').onFinishChange(rebuild);
+appearanceFolder.add(lightingState, 'sunShadow').name('sun shadow').onChange((v: boolean) => {
+  sun.intensity          = 1.4;
+  ambientLight.intensity = 0.8;
+});
+appearanceFolder.close();
 
 const cloudFolder = gui.addFolder('Clouds');
 cloudFolder.add(params, 'showClouds').name('show clouds').onChange((v: boolean) => {
@@ -149,6 +156,14 @@ function animate(): void {
   planet.group.rotation.y      += paused ? 0 : 0.0008;
   planet.cloudGroup.rotation.y += paused ? 0 : 0.00035;
   planet.tickClouds(paused ? 0 : dt);
+
+  // When sun shadow is disabled, keep the light locked to the camera so every
+  // visible surface is always fully lit — no dark side.
+  if (!lightingState.sunShadow) {
+    sun.position.copy(camera.position);
+  } else {
+    sun.position.set(6, 4, 5);
+  }
 
   controls.update();
   renderer.render(scene, camera);

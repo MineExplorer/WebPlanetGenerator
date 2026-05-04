@@ -25,7 +25,7 @@ export interface PlanetParams {
   // Sea level: fraction of normalised height [0..1] below which is ocean
   seaLevel: number;
   // Debug: show greyscale height + flat-blue sea instead of biomes
-  debugTerrain: boolean;
+  topoMap: boolean;
   // Canvas texture resolution (independent of geometry segments)
   textureWidth: number;
   textureHeight: number;
@@ -63,7 +63,7 @@ export const DEFAULT_PARAMS: PlanetParams = {
   detailStrength: 0.18,
   elevation: 0.22,
   seaLevel: 0.51,
-  debugTerrain: false,
+  topoMap: false,
   textureWidth: 2048,
   textureHeight: 1024,
   cloudScale: 2.5,
@@ -121,7 +121,7 @@ uniform int   uContinentOctaves;
 uniform float uBiomeScale;
 uniform float uDetailScale;
 uniform float uDetailStrength;
-uniform int   uDebugTerrain;
+uniform int   uTopoMap;
 uniform int   uMode; // 0 = colour, 1 = displacement grayscale
 // Climate additive offsets (sliders)
 uniform float uTempOffset;
@@ -226,12 +226,50 @@ vec3 biomeColor(float hN, float temp, float moisture, float seaLvl) {
 }
 
 vec3 debugColor(float hN, float seaLvl) {
+  // Ocean: deep navy → mid blue → shallow cyan-blue
   if (hN < seaLvl) {
-    float depth = 1.0 - hN / seaLvl;
-    return vec3(0.05, 0.25 - depth * 0.15, 0.55 - depth * 0.20);
+    float t = hN / max(0.001, seaLvl); // 0 = deepest, 1 = shore
+    vec3 deep    = vec3(0.031, 0.114, 0.310);
+    vec3 mid     = vec3(0.063, 0.278, 0.529);
+    vec3 shallow = vec3(0.173, 0.490, 0.663);
+    if (t < 0.5) return mix(deep, mid, t * 2.0);
+    return mix(mid, shallow, (t - 0.5) * 2.0);
   }
-  float v = (hN - seaLvl) / max(0.01, 1.0 - seaLvl);
-  return vec3(v);
+
+  // Beach strip
+  float beachTop = seaLvl + 0.035;
+  if (hN < beachTop) {
+    float t = (hN - seaLvl) / 0.035;
+    return mix(vec3(0.831, 0.776, 0.529), vec3(0.780, 0.718, 0.459), t);
+  }
+
+  float landH = (hN - beachTop) / max(0.001, 1.0 - beachTop); // 0 = coast, 1 = peak
+
+  // Colour stops for geographic height map
+  // 0.00 → lowland green
+  // 0.20 → mid green
+  // 0.40 → olive / yellow-green
+  // 0.55 → light brown
+  // 0.70 → medium brown
+  // 0.82 → dark brown / rocky
+  // 0.90 → grey rock
+  // 1.00 → snow white
+  const vec3 c0 = vec3(0.180, 0.502, 0.118); // lowland green
+  const vec3 c1 = vec3(0.251, 0.588, 0.157); // mid green
+  const vec3 c2 = vec3(0.600, 0.659, 0.220); // olive-yellow
+  const vec3 c3 = vec3(0.702, 0.529, 0.243); // light brown
+  const vec3 c4 = vec3(0.588, 0.388, 0.157); // medium brown
+  const vec3 c5 = vec3(0.451, 0.314, 0.157); // dark brown
+  const vec3 c6 = vec3(0.502, 0.478, 0.447); // grey rock
+  const vec3 c7 = vec3(1.000, 1.000, 1.000); // snow
+
+  if (landH < 0.20) return mix(c0, c1, landH / 0.20);
+  if (landH < 0.40) return mix(c1, c2, (landH - 0.20) / 0.20);
+  if (landH < 0.55) return mix(c2, c3, (landH - 0.40) / 0.15);
+  if (landH < 0.70) return mix(c3, c4, (landH - 0.55) / 0.15);
+  if (landH < 0.82) return mix(c4, c5, (landH - 0.70) / 0.12);
+  if (landH < 0.90) return mix(c5, c6, (landH - 0.82) / 0.08);
+  return mix(c6, c7, (landH - 0.90) / 0.10);
 }
 
 void main() {
@@ -275,7 +313,7 @@ void main() {
   float range = max(0.0001, uHMax - uHMin);
   float hN    = clamp((h - uHMin) / range, 0.0, 1.0);
 
-  vec3 col = uDebugTerrain != 0
+  vec3 col = uTopoMap != 0
     ? debugColor(hN, uSeaLevel)
     : biomeColor(hN, temp, moisture, uSeaLevel);
 
@@ -597,7 +635,7 @@ export class Planet {
         uBiomeScale:       { value: this.params.biomeScale },
         uDetailScale:      { value: this.params.detailScale },
         uDetailStrength:   { value: this.params.detailStrength },
-        uDebugTerrain:     { value: this.params.debugTerrain ? 1 : 0 },
+        uTopoMap:          { value: this.params.topoMap ? 1 : 0 },
         uMode:             { value: 0 },
         uTempOffset:       { value: this.params.tempOffset },
         uMoistureOffset:   { value: this.params.moistureOffset },
@@ -639,7 +677,7 @@ export class Planet {
     u.uBiomeScale.value       = p.biomeScale;
     u.uDetailScale.value      = p.detailScale;
     u.uDetailStrength.value   = p.detailStrength;
-    u.uDebugTerrain.value     = p.debugTerrain ? 1 : 0;
+    u.uTopoMap.value           = p.topoMap ? 1 : 0;
     u.uTempOffset.value       = p.tempOffset;
     u.uMoistureOffset.value   = p.moistureOffset;
     u.uOffContinent.value     = this._layerOffset(0);
