@@ -268,6 +268,19 @@ void main() {
     ? debugColor(hN, uSeaLevel)
     : biomeColor(hN, temp, moisture, uSeaLevel);
 
+  // Modulate colour by height so terrain relief is visible in the texture.
+  // Land: remap hN from [seaLevel,1] → [0.6,1.0] so highest peaks are brightest.
+  // Ocean: remap from [0,seaLevel] → [0.5,0.85] for subtle depth variation.
+  if (uMode == 0) {
+    float heightMod;
+    if (hN >= uSeaLevel) {
+      heightMod = 0.60 + 0.40 * (hN - uSeaLevel) / max(0.001, 1.0 - uSeaLevel);
+    } else {
+      heightMod = 0.50 + 0.35 * (hN / max(0.001, uSeaLevel));
+    }
+    col *= heightMod;
+  }
+
   // uMode 0 = colour output, 1 = grayscale hN for displacement map
   if (uMode == 1) {
     gl_FragColor = vec4(hN, hN, hN, 1.0);
