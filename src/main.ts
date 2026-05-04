@@ -113,6 +113,9 @@ appearanceFolder.add(lightingState, 'sunShadow').name('sun shadow').onChange((v:
   sun.intensity          = 1.4;
   ambientLight.intensity = 0.8;
 });
+appearanceFolder.add(params, 'showGrid').name('grid').onChange((v: boolean) => {
+  planet.gridMesh.visible = v;
+});
 
 const cloudFolder = gui.addFolder('Clouds');
 cloudFolder.add(params, 'showClouds').name('show clouds').onChange((v: boolean) => {

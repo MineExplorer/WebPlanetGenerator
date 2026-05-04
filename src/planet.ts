@@ -38,6 +38,8 @@ export interface PlanetParams {
   showClouds: boolean;
   // Ocean
   fancyOcean: boolean;
+  // Globe grid overlay
+  showGrid: boolean;
 }
 
 interface SampleResult {
@@ -75,6 +77,7 @@ export const DEFAULT_PARAMS: PlanetParams = {
   cloudHeight: 0.05,
   showClouds: true,
   fancyOcean: true,
+  showGrid: false,
 };
 
 // ---------------------------------------------------------------------------
@@ -382,6 +385,7 @@ export class Planet {
   group!: THREE.Group;
   mesh!: THREE.Mesh;
   oceanMesh!: THREE.Mesh;
+  gridMesh!: THREE.LineSegments;
 
   /** Cloud layer — rotate `cloudGroup` separately to drift clouds. */
   private _cloudLayer!: CloudLayer;
@@ -647,6 +651,68 @@ export class Planet {
   // Cloud layer
   // -------------------------------------------------------------------------
 
+  // -------------------------------------------------------------------------
+  // Globe grid
+  // -------------------------------------------------------------------------
+
+  private _buildGrid(): void {
+    const { radius, elevation, showGrid } = this.params;
+    // Sit just above the maximum possible terrain height
+    const r = radius + elevation * 0.5 + radius * 0.003;
+    const STEP   = 15; // degrees
+    const SEG    = 128; // segments per line
+    const positions: number[] = [];
+
+    // Latitude parallels (skip poles — they collapse to a point)
+    for (let lat = -90 + STEP; lat < 90; lat += STEP) {
+      const phi = (lat * Math.PI) / 180;
+      const sinPhi = Math.sin(phi), cosPhi = Math.cos(phi);
+      const circleR = r * cosPhi;
+      const y = r * sinPhi;
+      for (let i = 0; i < SEG; i++) {
+        const t0 = (i / SEG) * Math.PI * 2;
+        const t1 = ((i + 1) / SEG) * Math.PI * 2;
+        positions.push(
+          circleR * Math.cos(t0), y, circleR * Math.sin(t0),
+          circleR * Math.cos(t1), y, circleR * Math.sin(t1),
+        );
+      }
+    }
+
+    // Longitude meridians
+    for (let lon = 0; lon < 360; lon += STEP) {
+      const theta = (lon * Math.PI) / 180;
+      const cosTheta = Math.cos(theta), sinTheta = Math.sin(theta);
+      for (let i = 0; i < SEG; i++) {
+        const phi0 = -Math.PI / 2 + (i / SEG) * Math.PI;
+        const phi1 = -Math.PI / 2 + ((i + 1) / SEG) * Math.PI;
+        positions.push(
+          r * Math.cos(phi0) * cosTheta, r * Math.sin(phi0), r * Math.cos(phi0) * sinTheta,
+          r * Math.cos(phi1) * cosTheta, r * Math.sin(phi1), r * Math.cos(phi1) * sinTheta,
+        );
+      }
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    const mat = new THREE.LineBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.25,
+      depthWrite: false,
+    });
+
+    if (this.gridMesh) {
+      this.gridMesh.geometry.dispose();
+      (this.gridMesh.material as THREE.Material).dispose();
+      this.gridMesh.geometry = geo;
+      this.gridMesh.material = mat;
+    } else {
+      this.gridMesh = new THREE.LineSegments(geo, mat);
+    }
+    this.gridMesh.visible = showGrid;
+  }
+
   private _buildClouds(): void {
     if (!this._cloudLayer) {
       this._cloudLayer = new CloudLayer(this.params, this._renderer);
@@ -703,10 +769,13 @@ export class Planet {
 
     this._buildOcean();
 
+    this._buildGrid();
+
     if (!this.group) {
       this.group = new THREE.Group();
       this.group.add(this.mesh);
       this.group.add(this.oceanMesh);
+      this.group.add(this.gridMesh);
     }
 
     this._buildClouds();
