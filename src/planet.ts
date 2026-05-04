@@ -80,62 +80,92 @@ function fbm(
   return val / total;
 }
 
-function c(hex: number): THREE.Color { return new THREE.Color(hex); }
+/** Linear interpolation of a single 0-255 colour channel — no heap allocation. */
+function lerpC(a: number, b: number, t: number): number {
+  return (a + (b - a) * t + 0.5) | 0;
+}
 
 /**
  * Map normalised height + biome values to a terrain colour.
+ * Writes RGB directly into `data[idx..idx+2]` — no THREE.Color allocations.
  *
  * @param hN  Calibrated height in [0, 1]  (0 = deepest ocean floor, 1 = highest peak)
  * @param temp     Temperature noise roughly -1..1
  * @param moisture Moisture   noise roughly -1..1
  * @param seaLvl   Sea-level threshold in [0, 1]
  */
-function biomeColor(hN: number, temp: number, moisture: number, seaLvl: number): THREE.Color {
+function biomeColor(
+  data: Uint8ClampedArray, idx: number,
+  hN: number, temp: number, moisture: number, seaLvl: number,
+): void {
   // --- Ocean floor (texture only — ocean sphere mesh provides water appearance) ---
   if (hN < seaLvl) {
-    // Shallow → sandy, deep → dark sand
-    const depth = 1 - hN / seaLvl; // 0 = at shore, 1 = deepest
-    return c(0xc8b472).lerp(c(0x6a5a30), depth * 0.75);
+    const t = (1 - hN / seaLvl) * 0.75; // 0 = shore, 1 = deepest
+    data[idx]     = lerpC(0xc8, 0x6a, t);
+    data[idx + 1] = lerpC(0xb4, 0x5a, t);
+    data[idx + 2] = lerpC(0x72, 0x30, t);
+    return;
   }
 
   const beachTop = seaLvl + 0.04;
 
   // --- Beach / shore ---
-  if (hN < beachTop) return c(0xd4bc78);
+  if (hN < beachTop) {
+    data[idx] = 0xd4; data[idx + 1] = 0xbc; data[idx + 2] = 0x78;
+    return;
+  }
 
   // Remap land to [0, 1] with 0 = beach, 1 = highest peak
   const landH = (hN - beachTop) / Math.max(0.01, 1 - beachTop);
 
   // --- High altitude ---
   if (landH > 0.70) {
-    const t = Math.min(1, (landH - 0.70) / 0.20);
-    return c(0x8a837a).lerp(c(0xffffff), t); // rock → snow
+    const t = Math.min(1, (landH - 0.70) / 0.20); // rock → snow
+    data[idx]     = lerpC(0x8a, 0xff, t);
+    data[idx + 1] = lerpC(0x83, 0xff, t);
+    data[idx + 2] = lerpC(0x7a, 0xff, t);
+    return;
   }
-  if (landH > 0.50) return c(0x7a7a6a); // exposed rock
+  if (landH > 0.50) { // exposed rock
+    data[idx] = 0x7a; data[idx + 1] = 0x7a; data[idx + 2] = 0x6a;
+    return;
+  }
 
   // --- Biome band (driven by temp + moisture) ---
   if (temp < -0.35) {
-    const t = Math.min(1, (-temp - 0.35) / 0.30);
-    return c(0xb8d4c8).lerp(c(0xffffff), t); // tundra → ice
+    const t = Math.min(1, (-temp - 0.35) / 0.30); // tundra → ice
+    data[idx]     = lerpC(0xb8, 0xff, t);
+    data[idx + 1] = lerpC(0xd4, 0xff, t);
+    data[idx + 2] = lerpC(0xc8, 0xff, t);
+    return;
   }
-  if (temp > 0.30 && moisture < -0.20) return c(0xc8a050); // desert
-  if (temp > 0.20 && moisture >  0.25) return c(0x1a6b1a); // tropical forest
-  if (temp < 0.00)                     return c(0x3a7a42); // taiga / conifer
-  if (moisture > 0.05)                 return c(0x2d8c3a); // temperate forest
-  return c(0x7ab848);                                       // grassland
+  if (temp > 0.30 && moisture < -0.20) { // desert
+    data[idx] = 0xc8; data[idx + 1] = 0xa0; data[idx + 2] = 0x50;
+  } else if (temp > 0.20 && moisture > 0.25) { // tropical forest
+    data[idx] = 0x1a; data[idx + 1] = 0x6b; data[idx + 2] = 0x1a;
+  } else if (temp < 0.00) { // taiga / conifer
+    data[idx] = 0x3a; data[idx + 1] = 0x7a; data[idx + 2] = 0x42;
+  } else if (moisture > 0.05) { // temperate forest
+    data[idx] = 0x2d; data[idx + 1] = 0x8c; data[idx + 2] = 0x3a;
+  } else { // grassland
+    data[idx] = 0x7a; data[idx + 1] = 0xb8; data[idx + 2] = 0x48;
+  }
 }
 
 /**
  * Debug view: pure greyscale land height + solid blue ocean.
- * Makes it easy to verify that seaLevel threshold matches the ocean sphere.
+ * Writes directly into `data[idx..idx+2]` — no heap allocation.
  */
-function debugColor(hN: number, seaLvl: number): THREE.Color {
+function debugColor(data: Uint8ClampedArray, idx: number, hN: number, seaLvl: number): void {
   if (hN < seaLvl) {
     const depth = 1 - hN / seaLvl;
-    return new THREE.Color(0.05, 0.25 - depth * 0.15, 0.55 - depth * 0.2);
+    data[idx]     = (0.05 * 255 + 0.5) | 0;
+    data[idx + 1] = ((0.25 - depth * 0.15) * 255 + 0.5) | 0;
+    data[idx + 2] = ((0.55 - depth * 0.20) * 255 + 0.5) | 0;
+  } else {
+    const v = ((hN - seaLvl) / Math.max(0.01, 1 - seaLvl) * 255 + 0.5) | 0;
+    data[idx] = data[idx + 1] = data[idx + 2] = v;
   }
-  const landH = (hN - seaLvl) / Math.max(0.01, 1 - seaLvl);
-  return new THREE.Color(landH, landH, landH);
 }
 
 // ---------------------------------------------------------------------------
@@ -302,14 +332,12 @@ export class Planet {
 
         const { h, temp, moisture } = this._sample(x, y, z);
         const hN  = this._norm(h); // calibrated — same scale as _displaceGeometry
-        const col = debugTerrain
-          ? debugColor(hN, seaLevel)
-          : biomeColor(hN, temp, moisture, seaLevel);
-
-        const idx  = (py * W + px) * 4;
-        data[idx]     = col.r * 255;
-        data[idx + 1] = col.g * 255;
-        data[idx + 2] = col.b * 255;
+        const idx = (py * W + px) * 4;
+        if (debugTerrain) {
+          debugColor(data, idx, hN, seaLevel);
+        } else {
+          biomeColor(data, idx, hN, temp, moisture, seaLevel);
+        }
         data[idx + 3] = 255;
       }
     }
