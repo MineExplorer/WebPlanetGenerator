@@ -51,12 +51,12 @@ export const DEFAULT_PARAMS: PlanetParams = {
   continentScale: 1.2,
   continentOctaves: 5,
   biomeScale: 2.2,
-  tempOffset: 0,
+  tempOffset: 0.25,
   moistureOffset: 0,
-  detailScale: 7.0,
+  detailScale: 10.0,
   detailStrength: 0.18,
   elevation: 0.22,
-  seaLevel: 0.45,
+  seaLevel: 0.51,
   debugTerrain: false,
   textureWidth: 2048,
   textureHeight: 1024,
@@ -394,13 +394,22 @@ export class Planet {
   // GPU texture baking
   // -------------------------------------------------------------------------
 
+  /** Effective texture resolution — scales with radius so larger planets stay sharp. */
+  private _texSize(): { w: number; h: number } {
+    const { textureWidth, textureHeight, radius } = this.params;
+    return {
+      w: Math.max(1, Math.round(textureWidth  * radius)),
+      h: Math.max(1, Math.round(textureHeight * radius)),
+    };
+  }
+
   /**
    * Create the reusable off-screen bake pipeline once.
    * A PlaneGeometry(2,2) covers clip space exactly, so the ortho camera +
    * render target give us a full rect render without any matrix transforms.
    */
   private _initBakePipeline(): void {
-    const { textureWidth: W, textureHeight: H } = this.params;
+    const { w: W, h: H } = this._texSize();
 
     this._bakeScene  = new THREE.Scene();
     this._bakeCam    = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
@@ -504,7 +513,7 @@ export class Planet {
   private _buildOcean(): void {
     const { radius, segments, seaLevel, elevation } = this.params;
     // Sits at exactly the height where hN = seaLevel in _displaceGeometry
-    const oceanRadius = radius + seaLevel * elevation;
+    const oceanRadius = radius + (seaLevel - 0.5) * elevation;
     const oceanGeo = new THREE.SphereGeometry(
       oceanRadius,
       Math.max(64, segments),
@@ -549,7 +558,9 @@ export class Planet {
       map:               colorTex,
       displacementMap:   dispTex,
       displacementScale: elevation,
-      displacementBias:  0,
+      // Centre displacement around radius: terrain spans [radius - 0.5·e, radius + 0.5·e].
+      // Planet visual size = radius regardless of elevation value.
+      displacementBias:  -0.5 * elevation,
       roughness:         0.9,
       metalness:         0.0,
     });
@@ -590,8 +601,8 @@ export class Planet {
     this._calibrate();
     const step2Time = performance.now();
     console.log(`Noise calibrated in ${(step2Time - step1Time).toFixed(2)} ms`);
-    // Resize render targets if resolution params changed
-    const { textureWidth: W, textureHeight: H } = this.params;
+    // Resize render targets if effective resolution changed (radius or texture params)
+    const { w: W, h: H } = this._texSize();
     if (this._bakeTarget.width !== W || this._bakeTarget.height !== H) {
       this._bakeTarget.setSize(W, H);
       this._dispTarget.setSize(W, H);
