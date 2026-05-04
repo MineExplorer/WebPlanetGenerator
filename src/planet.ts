@@ -410,10 +410,10 @@ float snoise(vec3 v){
   return 42.*dot(m*m,vec4(dot(p0,x0),dot(p1,x1),dot(p2,x2),dot(p3,x3)));
 }
 
-// fBm for clouds — 7 octaves max
+// fBm for clouds — 5 octaves max
 float cfbm(vec3 p, int octaves) {
   float val=0.,amp=0.5,freq=1.,tot=0.;
-  for(int i=0;i<7;i++){
+  for(int i=0;i<5;i++){
     if(i>=octaves) break;
     val  +=snoise(p*freq)*amp;
     tot  +=amp;
@@ -426,22 +426,21 @@ float cfbm(vec3 p, int octaves) {
 void main() {
   vec3 dir = normalize(vLocalPos);
 
-  // --- Domain-warp the sample point for organic puffiness ---
-  float ws = uCloudScale * 0.55;  // warp frequency (lower than detail)
-  vec3 warp = vec3(
-    cfbm(dir * ws + vec3( uTime*0.013,  0.000,        0.000       ), 3),
-    cfbm(dir * ws + vec3( 0.000,        uTime*0.011,  uTime*0.009 ), 3),
-    cfbm(dir * ws + vec3( uTime*0.010,  uTime*0.014,  0.000       ), 3)
-  );
-
-  float cloud = cfbm(dir * uCloudScale + warp * 0.72, 6);
-
-  // --- Coverage threshold with smooth edges ---
   float lo    = uCloudDensity - 0.10;
   float hi    = uCloudDensity + 0.32;
-  float cover = smoothstep(lo, hi, cloud);
 
-  if (cover < 0.005) discard;
+  // --- Domain-warp the sample point for organic puffiness (2 octaves each) ---
+  float ws = uCloudScale * 0.55;
+  vec3 warp = vec3(
+    cfbm(dir * ws + vec3( uTime*0.013,  0.000,        0.000       ), 2),
+    cfbm(dir * ws + vec3( 0.000,        uTime*0.011,  uTime*0.009 ), 2),
+    cfbm(dir * ws + vec3( uTime*0.010,  uTime*0.014,  0.000       ), 2)
+  );
+
+  float cloud = cfbm(dir * uCloudScale + warp * 0.72, 4);
+
+  // --- Coverage threshold with smooth edges ---
+  float cover = smoothstep(lo, hi, cloud);
 
   // --- Colour: bright white core, soft blue-tinted wispy edges ---
   vec3 coreColor = vec3(1.00, 1.00, 1.00);
@@ -741,7 +740,7 @@ export class Planet {
   private _buildClouds(): void {
     const { radius, cloudHeight, cloudScale, cloudDensity, cloudOpacity, segments, showClouds } = this.params;
     const cloudRadius = radius * (1 + cloudHeight);
-    const segs = Math.max(64, segments);
+    const segs = Math.min(Math.max(48, segments), 96);
     const geo  = new THREE.SphereGeometry(cloudRadius, segs, segs);
 
     if (!this._cloudMat) {
@@ -847,6 +846,12 @@ export class Planet {
   update(params: Partial<PlanetParams>): void {
     Object.assign(this.params, params);
     this.rebuild();
+  }
+
+  /** Update only the cloud layer (scale, density, opacity, height, visibility). */
+  updateClouds(params: Partial<PlanetParams>): void {
+    Object.assign(this.params, params);
+    this._buildClouds();
   }
 
   rebuild(): void {

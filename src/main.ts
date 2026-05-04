@@ -104,7 +104,7 @@ const cloudFolder = gui.addFolder('Clouds');
 cloudFolder.add(params, 'showClouds').name('show clouds').onChange((v: boolean) => {
   planet.cloudMesh.visible = v;
 });
-cloudFolder.add(params, 'cloudHeight',  0.01, 0.12, 0.005).name('altitude').onFinishChange(rebuild);
+cloudFolder.add(params, 'cloudHeight',  0.01, 0.12, 0.005).name('altitude').onFinishChange(rebuildClouds);
 cloudFolder.add(params, 'cloudScale',   0.5,  6.0,  0.1  ).name('scale').onFinishChange(rebuildClouds);
 cloudFolder.add(params, 'cloudDensity', 0.0,  0.6,  0.01 ).name('coverage').onFinishChange(rebuildClouds);
 cloudFolder.add(params, 'cloudOpacity', 0.1,  1.0,  0.01 ).name('opacity').onFinishChange(rebuildClouds);
@@ -115,7 +115,7 @@ function rebuild(): void {
 }
 
 function rebuildClouds(): void {
-  planet.update({ ...params });
+  planet.updateClouds(params);
 }
 
 // ---------------------------------------------------------------------------
@@ -146,12 +146,23 @@ window.addEventListener('keydown', (e) => {
 // Render loop
 // ---------------------------------------------------------------------------
 let lastTime = performance.now();
+const fpsEl = document.getElementById('fps') as HTMLDivElement;
+let fpsFrames = 0;
+let fpsAccum  = 0;
 
 function animate(): void {
   requestAnimationFrame(animate);
   const now = performance.now();
   const dt  = Math.min((now - lastTime) * 0.001, 0.05); // cap delta at 50 ms
   lastTime  = now;
+
+  fpsFrames++;
+  fpsAccum += dt;
+  if (fpsAccum >= 0.5) {
+    fpsEl.textContent = `${Math.round(fpsFrames / fpsAccum)} fps`;
+    fpsFrames = 0;
+    fpsAccum  = 0;
+  }
 
   planet.group.rotation.y      += paused ? 0 : 0.0008;
   planet.cloudGroup.rotation.y += paused ? 0 : 0.00035;

@@ -33,3 +33,17 @@ canvas{ display: block; }
   font-family: inherit;
   font-size: inherit;
 }
+
+#fps {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  color: rgba(255,255,255,0.75);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.03em;
+  pointer-events: none;
+  user-select: none;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.8);
+  z-index: 10;
+}
