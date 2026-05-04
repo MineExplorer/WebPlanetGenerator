@@ -98,7 +98,6 @@ appearanceFolder.add(lightingState, 'sunShadow').name('sun shadow').onChange((v:
   sun.intensity          = 1.4;
   ambientLight.intensity = 0.8;
 });
-appearanceFolder.close();
 
 const cloudFolder = gui.addFolder('Clouds');
 cloudFolder.add(params, 'showClouds').name('show clouds').onChange((v: boolean) => {
