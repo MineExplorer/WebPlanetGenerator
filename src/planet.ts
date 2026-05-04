@@ -199,7 +199,7 @@ float fbm(vec3 p, vec3 offset, float scale, int octaves, float persistence, floa
 // ---------------------------------------------------------------------------
 // Biome colour logic  (mirrors planet.ts CPU version)
 // ---------------------------------------------------------------------------
-vec3 biomeColor(float hN, float temp, float moisture, float seaLvl) {
+vec3 biomeColor(float hN, float temp, float moisture, float seaLvl, vec3 dir, vec3 offT, vec3 offM) {
   if (hN < seaLvl) {
     float t = (1.0 - hN / seaLvl) * 0.75;
     return mix(vec3(0.784, 0.706, 0.447), vec3(0.416, 0.353, 0.188), t);
@@ -215,18 +215,27 @@ vec3 biomeColor(float hN, float temp, float moisture, float seaLvl) {
   }
   if (landH > 0.50) return vec3(0.478, 0.478, 0.416); // exposed rock
 
-  if (temp < -0.35) {
-    float t = min(1.0, (-temp - 0.35) / 0.30);
-    return mix(vec3(0.722, 0.831, 0.784), vec3(1.0), t); // tundra → ice
+  // High-frequency warp to break up biome boundary regularity
+  float warpT = snoise((dir + offT * 0.013) * 11.0) * 0.13
+              + snoise((dir + offT * 0.007) * 23.0) * 0.05;
+  float warpM = snoise((dir + offM * 0.013) * 10.0) * 0.13
+              + snoise((dir + offM * 0.007) * 21.0) * 0.05;
+  float bt = clamp(temp     + warpT, -1.0, 1.0);
+  float bm = clamp(moisture + warpM, -1.0, 1.0);
+
+  if (bt < -0.60) {
+    float t = min(1.0, (-bt - 0.55) / 0.20);
+    return mix(vec3(0.722, 0.831, 0.784), vec3(1.0), t); // tundra → ice/snow
   }
-  if (temp > 0.30 && moisture < -0.20) return vec3(0.784, 0.627, 0.314); // desert
-  if (temp > 0.20 && moisture >  0.25)  return vec3(0.102, 0.420, 0.102); // tropical
-  if (temp < 0.00)                       return vec3(0.227, 0.478, 0.259); // taiga
-  if (moisture > 0.05)                   return vec3(0.176, 0.549, 0.227); // temp. forest
+  if (bt < -0.40) return vec3(0.573, 0.533, 0.380); // tundra
+  if (bt > 0.30 && bm < -0.20) return vec3(0.784, 0.627, 0.314); // desert
+  if (bt > 0.20 && bm >  0.25) return vec3(0.102, 0.420, 0.102); // tropical
+  if (bt < 0.00)                return vec3(0.227, 0.478, 0.259); // taiga
+  if (bm > 0.05)                return vec3(0.176, 0.549, 0.227); // rainforest
   return vec3(0.478, 0.722, 0.282); // grassland
 }
 
-vec3 debugColor(float hN, float seaLvl) {
+vec3 heightColor(float hN, float seaLvl) {
   // Ocean: deep navy → mid blue → shallow cyan-blue
   if (hN < seaLvl) {
     float t = hN / max(0.001, seaLvl); // 0 = deepest, 1 = shore
@@ -315,8 +324,8 @@ void main() {
   float hN    = clamp((h - uHMin) / range, 0.0, 1.0);
 
   vec3 col = uTopoMap != 0
-    ? debugColor(hN, uSeaLevel)
-    : biomeColor(hN, temp, moisture, uSeaLevel);
+    ? heightColor(hN, uSeaLevel)
+    : biomeColor(hN, temp, moisture, uSeaLevel, dir, uOffTemp, uOffMoisture);
 
   // Modulate colour by height so terrain relief is visible in the texture.
   // Land: remap hN from [seaLevel,1] → [0.6,1.0] so highest peaks are brightest.
