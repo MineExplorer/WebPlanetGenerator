@@ -91,7 +91,7 @@ noiseFolder.add(params, 'detailStrength',   0,   0.5,  0.01).name('detail streng
 
 const climateFolder = gui.addFolder('Climate');
 climateFolder.add(params, 'tempOffset',     -1.0, 1.0, 0.01).name('temperature offset').onFinishChange(rebuild);
-climateFolder.add(params, 'moistureOffset', -1.0, 1.0, 0.01).name('moisture offset'   ).onFinishChange(rebuild);
+climateFolder.add(params, 'moistureOffset', -0.5, 0.5, 0.01).name('moisture offset'   ).onFinishChange(rebuild);
 
 const seedFolder  = gui.addFolder('Seed');
 const seedCtrl    = seedFolder.add(params, 'seed').onFinishChange(rebuild);

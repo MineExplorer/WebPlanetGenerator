@@ -229,22 +229,26 @@ vec3 biomeColor(float hN, float temp, float moisture, float seaLvl, vec3 dir, ve
   float warpM = snoise((dir + offM * 0.013) * 10.0) * 0.13
               + snoise((dir + offM * 0.007) * 21.0) * 0.05;
   float bt = clamp(temp     + warpT, -1.0, 1.0);
-  float bm = clamp(moisture + warpM, -1.0, 1.0);
+  float bm = clamp(moisture + warpM,  0.0, 1.0);
 
   // Elevation lapse rate: cubic curve keeps low-elevation areas unaffected
   // while aggressively cooling only true peaks (landH^3 is ~0 at foothills,
   // surges to 3.0 at the summit — driving any peak past the snow threshold).
   bt = clamp(bt - pow(landH, 3.0) * 3.0, -1.0, 1.0);
 
+  // Elevation moisture decline: linear reduction to 20 % of original at landH=1.
+  // Models orographic drying — high peaks are significantly more arid.
+  bm = clamp(bm * (1.0 - 0.6 * landH), 0.0, 1.0);
+
   if (bt < -0.65) {
     float t = min(1.0, (-bt - 0.55) / 0.20);
     return mix(vec3(0.722, 0.831, 0.784), vec3(1.0), t); // tundra → ice/snow
   }
   if (bt < -0.40) return vec3(0.573, 0.533, 0.380); // tundra
-  if (bt > 0.30 && bm < -0.20) return vec3(0.784, 0.627, 0.314); // desert
-  if (bt > 0.20 && bm >  0.25) return vec3(0.102, 0.420, 0.102); // tropical
-  if (bt < 0.00)                return vec3(0.227, 0.478, 0.259); // taiga
-  if (bm > 0.05)                return vec3(0.176, 0.549, 0.227); // rainforest
+  if (bt > 0.30 && bm < 0.40) return vec3(0.784, 0.627, 0.314); // desert
+  if (bt > 0.20 && bm > 0.625) return vec3(0.102, 0.420, 0.102); // tropical
+  if (bt < 0.00)               return vec3(0.227, 0.478, 0.259); // taiga
+  if (bm > 0.525)              return vec3(0.176, 0.549, 0.227); // rainforest
   return vec3(0.478, 0.722, 0.282); // grassland
 }
 
@@ -322,20 +326,20 @@ void main() {
   // lat / (PI/4) maps [0, PI/2] → [0, 2], so baseTemp = 1 - that.
   float baseTemp = clamp(1.0 - lat / (3.14159265359 * 0.25), -1.0, 1.0);
 
-  // Moisture: cos(6·lat_rad) reproduces the wind-belt pattern —
-  //   0°  (ITCZ)        → +1  max  (equatorial rainforest)
-  //   30° (subtropical) → −1  min  (trade-wind deserts)
-  //   60° (subpolar)    → +1  2nd max  (temperate forests)
-  //   90° (polar)       → −1  min  (polar desert)
-  float baseMoist = cos(6.0 * lat);
+  // Moisture [0,1]: cos(6·lat_rad) gives wind-belt pattern remapped to [0,1].
+  //   0°  (ITCZ)        → 1.0  max  (equatorial rainforest)
+  //   30° (subtropical) → 0.0  min  (trade-wind deserts)
+  //   60° (subpolar)    → 1.0  2nd max  (temperate forests)
+  //   90° (polar)       → 0.0  min  (polar desert)
+  float baseMoist = cos(6.0 * lat) * 0.5 + 0.5;
 
   // Noise perturbation on top of the base patterns
   float noiseTemp  = fbm(dir, uOffTemp,     uBiomeScale,       3, 0.55, 2.0);
   float noiseMoist = fbm(dir, uOffMoisture, uBiomeScale * 0.8, 3, 0.50, 2.0);
 
   // Additive slider offsets applied last
-  float temp     = clamp(baseTemp  + noiseTemp  * 0.35 + uTempOffset,     -1.0, 1.0);
-  float moisture = clamp(baseMoist + noiseMoist * 0.35 + uMoistureOffset, -1.0, 1.0);
+  float temp     = clamp(baseTemp  + noiseTemp  * 0.35  + uTempOffset,     -1.0, 1.0);
+  float moisture = clamp(baseMoist + noiseMoist * 0.175 + uMoistureOffset,  0.0, 1.0);
 
   // Normalise h to [0,1] using CPU-calibrated range
   float range = max(0.0001, uHMax - uHMin);
