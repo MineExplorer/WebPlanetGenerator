@@ -62,7 +62,7 @@ export const DEFAULT_PARAMS: PlanetParams = {
   continentScale: 1.2,
   continentOctaves: 5,
   biomeScale: 3.5,
-  tempOffset: 0.25,
+  tempOffset: 0,
   moistureOffset: 0,
   detailScale: 12.0,
   detailStrength: 0.18,
@@ -236,7 +236,7 @@ vec3 biomeColor(float hN, float temp, float moisture, float seaLvl, vec3 dir, ve
   // surges to 3.0 at the summit — driving any peak past the snow threshold).
   bt = clamp(bt - pow(landH, 3.0) * 3.0, -1.0, 1.0);
 
-  if (bt < -0.60) {
+  if (bt < -0.65) {
     float t = min(1.0, (-bt - 0.55) / 0.20);
     return mix(vec3(0.722, 0.831, 0.784), vec3(1.0), t); // tundra → ice/snow
   }
@@ -316,15 +316,17 @@ void main() {
   // abs(cosPhi) = sin(geographic latitude), goes 0→equator, 1→poles
   float sinLat = abs(cosPhi);
 
-  // Temperature: linear decline equator (+1) → poles (-1)
-  float baseTemp = 1.0 - 2.0 * sinLat;
+  float lat = asin(sinLat); // geographic latitude in radians [0, PI/2]
+
+  // Temperature: linear decline equator (+1) → poles (-1), crossing 0 at 45°.
+  // lat / (PI/4) maps [0, PI/2] → [0, 2], so baseTemp = 1 - that.
+  float baseTemp = clamp(1.0 - lat / (3.14159265359 * 0.25), -1.0, 1.0);
 
   // Moisture: cos(6·lat_rad) reproduces the wind-belt pattern —
   //   0°  (ITCZ)        → +1  max  (equatorial rainforest)
   //   30° (subtropical) → −1  min  (trade-wind deserts)
   //   60° (subpolar)    → +1  2nd max  (temperate forests)
   //   90° (polar)       → −1  min  (polar desert)
-  float lat = asin(sinLat); // geographic latitude in radians [0, PI/2]
   float baseMoist = cos(6.0 * lat);
 
   // Noise perturbation on top of the base patterns
