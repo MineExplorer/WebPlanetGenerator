@@ -93,9 +93,22 @@ const debugFolder = gui.addFolder('Debug');
 debugFolder.add(params, 'debugTerrain').name('height map only').onFinishChange(rebuild);
 debugFolder.close();
 
+const cloudFolder = gui.addFolder('Clouds');
+cloudFolder.add(params, 'showClouds').name('show clouds').onChange((v: boolean) => {
+  planet.cloudMesh.visible = v;
+});
+cloudFolder.add(params, 'cloudHeight',  0.01, 0.12, 0.005).name('altitude').onFinishChange(rebuild);
+cloudFolder.add(params, 'cloudScale',   0.5,  6.0,  0.1  ).name('scale').onFinishChange(rebuildClouds);
+cloudFolder.add(params, 'cloudDensity', 0.0,  0.6,  0.01 ).name('coverage').onFinishChange(rebuildClouds);
+cloudFolder.add(params, 'cloudOpacity', 0.1,  1.0,  0.01 ).name('opacity').onFinishChange(rebuildClouds);
+
 function rebuild(): void {
   planet.update(params);
   updateZoom();
+}
+
+function rebuildClouds(): void {
+  planet.update({ ...params });
 }
 
 // ---------------------------------------------------------------------------
@@ -110,9 +123,18 @@ window.addEventListener('resize', () => {
 // ---------------------------------------------------------------------------
 // Render loop
 // ---------------------------------------------------------------------------
+let lastTime = performance.now();
+
 function animate(): void {
   requestAnimationFrame(animate);
-  planet.group.rotation.y += 0.0008;
+  const now = performance.now();
+  const dt  = Math.min((now - lastTime) * 0.001, 0.05); // cap delta at 50 ms
+  lastTime  = now;
+
+  planet.group.rotation.y      += 0.0008;
+  planet.cloudGroup.rotation.y += 0.00035; // clouds drift relative to surface
+  planet.tickClouds(dt);
+
   controls.update();
   renderer.render(scene, camera);
 }
