@@ -80,7 +80,7 @@ const gui = new GUI({ title: 'Planet Generator' });
 const shapeFolder = gui.addFolder('Shape');
 shapeFolder.add(params, 'radius',    0.5,  3.0,  0.05).onFinishChange(rebuild);
 shapeFolder.add(params, 'elevation', 0,    0.5,  0.01).onFinishChange(rebuild);
-shapeFolder.add(params, 'seaLevel',  0.0,  0.85, 0.01).name('sea level').onFinishChange(rebuild);
+const seaLevelCtrl = shapeFolder.add(params, 'seaLevel',  0.0,  0.85, 0.01).name('sea level').onFinishChange(rebuild);
 
 const noiseFolder = gui.addFolder('Noise');
 noiseFolder.add(params, 'continentScale',   0.3, 4.0,  0.05).name('continent scale'  ).onFinishChange(rebuild);
@@ -134,6 +134,38 @@ function rebuild(): void {
 function rebuildClouds(): void {
   planet.updateClouds(params);
 }
+
+// ---------------------------------------------------------------------------
+// Custom height map
+// ---------------------------------------------------------------------------
+const fileInput = document.createElement('input');
+fileInput.type   = 'file';
+fileInput.accept = 'image/*';
+fileInput.style.display = 'none';
+document.body.appendChild(fileInput);
+
+const heightMapState = { label: 'none loaded' };
+
+const heightMapFolder = gui.addFolder('Height Map');
+const heightMapNameCtrl = heightMapFolder.add(heightMapState, 'label').name('file').disable();
+heightMapFolder.add({ load() { fileInput.click(); } }, 'load').name('📂 Load image…');
+heightMapFolder.add({ clear() {
+  planet.clearHeightMap();
+  heightMapState.label = 'none loaded';
+  heightMapNameCtrl.updateDisplay();
+} }, 'clear').name('✕ Clear (use noise)');
+heightMapFolder.close();
+
+fileInput.addEventListener('change', () => {
+  const file = fileInput.files?.[0];
+  if (!file) return;
+  planet.loadHeightMap(file).then(() => {
+    heightMapState.label = file.name;
+    heightMapNameCtrl.updateDisplay();
+    seaLevelCtrl.updateDisplay();
+  });
+  fileInput.value = '';
+});
 
 // ---------------------------------------------------------------------------
 // Resize

@@ -40,6 +40,8 @@ export interface PlanetParams {
   fancyOcean: boolean;
   // Globe grid overlay
   showGrid: boolean;
+  // Elevation-based moisture drying
+  elevationMoisture: boolean;
 }
 
 interface SampleResult {
@@ -78,6 +80,7 @@ export const DEFAULT_PARAMS: PlanetParams = {
   showClouds: true,
   fancyOcean: true,
   showGrid: false,
+  elevationMoisture: true,
 };
 
 // ---------------------------------------------------------------------------
@@ -140,6 +143,11 @@ uniform vec3 uOffContinent;
 uniform vec3 uOffDetail;
 uniform vec3 uOffTemp;
 uniform vec3 uOffMoisture;
+
+// Custom height map — when uUseCustomMap=1 the texture replaces noise-derived hN
+// for both the colour and displacement outputs.
+uniform int       uUseCustomMap;
+uniform sampler2D uCustomHeightTex;
 
 // ---------------------------------------------------------------------------
 // Simplex 3D noise — Ashima Arts (MIT licence)
@@ -345,6 +353,13 @@ void main() {
   float range = max(0.0001, uHMax - uHMin);
   float hN    = clamp((h - uHMin) / range, 0.0, 1.0);
 
+  // Custom height map: override hN with the raw texel value [0,1].
+  // Both the colour/biome pass and the displacement pass use this same hN,
+  // so they stay perfectly aligned.
+  if (uUseCustomMap != 0) {
+    hN = texture2D(uCustomHeightTex, vUv).r;
+  }
+
   // When fancy ocean is off, clamp displacement to seaLevel so underwater
   // terrain is raised flush with the waterline (no underwater holes).
   float hNDisp = (uFancyOcean == 0) ? max(hN, uSeaLevel) : hN;
@@ -424,6 +439,9 @@ export class Planet {
   private _bakeMat!:    THREE.ShaderMaterial;
   private _bakeTarget!: THREE.WebGLRenderTarget; // colour
   private _dispTarget!: THREE.WebGLRenderTarget; // grayscale hN for displacementMap
+
+  /** Optional user-supplied displacement texture (overrides procedural noise). */
+  private _customDispTex: THREE.Texture | null = null;
 
   constructor(params: Partial<PlanetParams> = {}, renderer: THREE.WebGLRenderer) {
     this.params    = { ...DEFAULT_PARAMS, ...params };
@@ -554,12 +572,15 @@ export class Planet {
         uTopoMap:          { value: this.params.topoMap ? 1 : 0 },
         uFancyOcean:       { value: this.params.fancyOcean ? 1 : 0 },
         uMode:             { value: 0 },
-        uTempOffset:       { value: this.params.tempOffset },
-        uMoistureOffset:   { value: this.params.moistureOffset },
-        uOffContinent:     { value: this._layerOffset(0) },
-        uOffDetail:        { value: this._layerOffset(1) },
-        uOffTemp:          { value: this._layerOffset(2) },
-        uOffMoisture:      { value: this._layerOffset(3) },
+        uTempOffset:        { value: this.params.tempOffset },
+        uMoistureOffset:    { value: this.params.moistureOffset },
+        uElevationMoisture: { value: this.params.elevationMoisture ? 1 : 0 },
+        uUseCustomMap:      { value: 0 },
+        uCustomHeightTex:   { value: null },
+        uOffContinent:      { value: this._layerOffset(0) },
+        uOffDetail:         { value: this._layerOffset(1) },
+        uOffTemp:           { value: this._layerOffset(2) },
+        uOffMoisture:       { value: this._layerOffset(3) },
       },
     });
 
@@ -596,12 +617,19 @@ export class Planet {
     u.uDetailStrength.value   = p.detailStrength;
     u.uTopoMap.value           = p.topoMap ? 1 : 0;
     u.uFancyOcean.value        = p.fancyOcean ? 1 : 0;
-    u.uTempOffset.value       = p.tempOffset;
-    u.uMoistureOffset.value   = p.moistureOffset;
-    u.uOffContinent.value     = this._layerOffset(0);
-    u.uOffDetail.value        = this._layerOffset(1);
-    u.uOffTemp.value          = this._layerOffset(2);
-    u.uOffMoisture.value      = this._layerOffset(3);
+    u.uTempOffset.value        = p.tempOffset;
+    u.uMoistureOffset.value    = p.moistureOffset;
+    u.uElevationMoisture.value = p.elevationMoisture ? 1 : 0;
+    u.uOffContinent.value      = this._layerOffset(0);
+    u.uOffDetail.value         = this._layerOffset(1);
+    u.uOffTemp.value           = this._layerOffset(2);
+    u.uOffMoisture.value       = this._layerOffset(3);
+
+    // Custom height map: feed texture directly into the shader so both the colour
+    // and displacement passes derive hN from the real map, not from noise.
+    const hasCustom = !!this._customDispTex;
+    u.uUseCustomMap.value    = hasCustom ? 1 : 0;
+    u.uCustomHeightTex.value = hasCustom ? this._customDispTex : null;
 
     // Pass 1: colour
     u.uMode.value = 0;
@@ -609,13 +637,20 @@ export class Planet {
     this._renderer.render(this._bakeScene, this._bakeCam);
 
     // Pass 2: grayscale hN for displacementMap
-    u.uMode.value = 1;
-    this._renderer.setRenderTarget(this._dispTarget);
-    this._renderer.render(this._bakeScene, this._bakeCam);
+    // Skipped when a custom height map is loaded — use it directly instead.
+    let dispTex: THREE.Texture;
+    if (this._customDispTex) {
+      dispTex = this._customDispTex;
+    } else {
+      u.uMode.value = 1;
+      this._renderer.setRenderTarget(this._dispTarget);
+      this._renderer.render(this._bakeScene, this._bakeCam);
+      dispTex = this._dispTarget.texture;
+    }
 
     this._renderer.setRenderTarget(null);
 
-    return { colorTex: this._bakeTarget.texture, dispTex: this._dispTarget.texture };
+    return { colorTex: this._bakeTarget.texture, dispTex };
   }
 
   // -------------------------------------------------------------------------
@@ -800,6 +835,47 @@ export class Planet {
     Object.assign(this.params, params);
     this.rebuild();
   }
+
+  /**
+   * Load an image file as the displacement (height) map.
+   * The image should be a greyscale equirectangular map where white = highest
+   * and black = lowest. PNG or 16-bit PNG gives the best results.
+   * Calls rebuild() automatically when the texture is ready.
+   */
+  loadHeightMap(file: File): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      new THREE.TextureLoader().load(
+        url,
+        (tex) => {
+          URL.revokeObjectURL(url);
+          tex.wrapS = THREE.RepeatWrapping;
+          tex.colorSpace = THREE.LinearSRGBColorSpace;
+          if (this._customDispTex) this._customDispTex.dispose();
+          this._customDispTex = tex;
+          // Most greyscale heightmaps have 0 = deep ocean, values rising to 1 at peaks.
+          // The user can still adjust via the sea level slider.
+          this.params.seaLevel = 0.001;
+          this.rebuild();
+          resolve();
+        },
+        undefined,
+        (err) => { URL.revokeObjectURL(url); reject(err); },
+      );
+    });
+  }
+
+  /** Remove the custom height map and revert to procedural noise. */
+  clearHeightMap(): void {
+    if (this._customDispTex) {
+      this._customDispTex.dispose();
+      this._customDispTex = null;
+    }
+    this.rebuild();
+  }
+
+  /** Returns true when a custom height map is currently active. */
+  get hasCustomHeightMap(): boolean { return this._customDispTex !== null; }
 
   /** Update only the cloud layer (scale, density, opacity, height, visibility). */
   updateClouds(params: Partial<PlanetParams>): void {
