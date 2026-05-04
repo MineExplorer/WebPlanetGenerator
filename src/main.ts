@@ -80,7 +80,8 @@ const gui = new GUI({ title: 'Planet Generator' });
 const shapeFolder = gui.addFolder('Shape');
 shapeFolder.add(params, 'radius',    0.5,  3.0,  0.05).onFinishChange(rebuild);
 shapeFolder.add(params, 'elevation', 0,    0.5,  0.01).onFinishChange(rebuild);
-const seaLevelCtrl = shapeFolder.add(params, 'seaLevel',  0.0,  0.85, 0.01).name('sea level').onFinishChange(rebuild);
+const seaLevelCtrl = shapeFolder.add(params, 'seaLevel',   0.0,  0.85, 0.01 ).name('sea level'  ).onFinishChange(rebuild);
+shapeFolder.add(params, 'shoreWidth', 0.0,  0.15, 0.002).name('shore width').onFinishChange(rebuild);
 
 const noiseFolder = gui.addFolder('Noise');
 noiseFolder.add(params, 'continentScale',   0.3, 4.0,  0.05).name('continent scale'  ).onFinishChange(rebuild);

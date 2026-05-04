@@ -25,6 +25,8 @@ export interface PlanetParams {
   elevation: number;
   // Sea level: fraction of normalised height [0..1] below which is ocean
   seaLevel: number;
+  // Width of the beach / shore strip above sea level [0..1 height units]
+  shoreWidth: number;
   // Debug: show greyscale height + flat-blue sea instead of biomes
   topoMap: boolean;
   // Canvas texture resolution (independent of geometry segments)
@@ -70,6 +72,7 @@ export const DEFAULT_PARAMS: PlanetParams = {
   detailStrength: 0.18,
   elevation: 0.2,
   seaLevel: 0.54,
+  shoreWidth: 0.02,
   topoMap: false,
   textureWidth: 2048,
   textureHeight: 1024,
@@ -126,6 +129,7 @@ varying vec2 vUv;
 uniform float uHMin;
 uniform float uHMax;
 uniform float uSeaLevel;
+uniform float uShoreWidth; // height-units width of beach strip above sea level
 uniform float uContinentScale;
 uniform int   uContinentOctaves;
 uniform float uBiomeScale;
@@ -226,7 +230,7 @@ vec3 biomeColor(float hN, float temp, float moisture, float seaLvl, vec3 dir, ve
     float t = (1.0 - hN / seaLvl) * 0.75;
     return mix(vec3(0.784, 0.706, 0.447), vec3(0.416, 0.353, 0.188), t);
   }
-  float beachTop = seaLvl + 0.04;
+  float beachTop = seaLvl + uShoreWidth;
   if (hN < beachTop) return vec3(0.831, 0.737, 0.471);
 
   float landH = (hN - beachTop) / max(0.01, 1.0 - beachTop);
@@ -268,13 +272,8 @@ vec3 heightColor(float hN, float seaLvl) {
     return mix(deep, shallow, t);
   }
 
-  // Beach strip
-  float beachTop = seaLvl + 0.035;
-  if (hN < beachTop) {
-    float t = (hN - seaLvl) / 0.035;
-    return mix(vec3(0.831, 0.776, 0.529), vec3(0.780, 0.718, 0.459), t);
-  }
-
+  // No shore strip in topo/height mode — land colour starts immediately at sea level.
+  float beachTop = seaLvl;
   float landH = (hN - beachTop) / max(0.001, 1.0 - beachTop); // 0 = coast, 1 = peak
 
   // Colour stops for geographic height map
@@ -564,6 +563,7 @@ export class Planet {
         uHMin:             { value: this._hMin },
         uHMax:             { value: this._hMax },
         uSeaLevel:         { value: this.params.seaLevel },
+        uShoreWidth:       { value: this.params.shoreWidth },
         uContinentScale:   { value: this.params.continentScale },
         uContinentOctaves: { value: this.params.continentOctaves },
         uBiomeScale:       { value: this.params.biomeScale },
@@ -610,6 +610,7 @@ export class Planet {
     u.uHMin.value             = this._hMin;
     u.uHMax.value             = this._hMax;
     u.uSeaLevel.value         = p.seaLevel;
+    u.uShoreWidth.value       = p.shoreWidth;
     u.uContinentScale.value   = p.continentScale;
     u.uContinentOctaves.value = p.continentOctaves;
     u.uBiomeScale.value       = p.biomeScale;
