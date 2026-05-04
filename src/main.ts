@@ -51,11 +51,8 @@ scene.add(sun);
 // ---------------------------------------------------------------------------
 const params: PlanetParams = { ...DEFAULT_PARAMS, seed: Math.random() };
 
-const startTime = performance.now();
 const planet = new Planet(params);
 scene.add(planet.group);
-const endTime = performance.now();
-console.log(`Planet generated in ${(endTime - startTime).toFixed(2)} ms`);
 
 // ---------------------------------------------------------------------------
 // GUI
@@ -88,10 +85,7 @@ debugFolder.add(params, 'debugTerrain').name('height map only').onFinishChange(r
 debugFolder.close();
 
 function rebuild(): void {
-  const startTime = performance.now();
   planet.update(params);
-  const endTime = performance.now();
-  console.log(`Planet updated in ${(endTime - startTime).toFixed(2)} ms`);
 }
 
 // ---------------------------------------------------------------------------

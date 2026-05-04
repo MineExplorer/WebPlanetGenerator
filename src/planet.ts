@@ -196,9 +196,7 @@ export class Planet {
 
   constructor(params: Partial<PlanetParams> = {}) {
     this.params = { ...DEFAULT_PARAMS, ...params };
-    this._buildNoise();
-    this._calibrate();
-    this._createMesh();
+    this.rebuild();
   }
 
   // -------------------------------------------------------------------------
@@ -387,8 +385,12 @@ export class Planet {
   private _createMesh(): void {
     const { radius, segments } = this.params;
     const geo = new THREE.SphereGeometry(radius, segments, segments);
+    const startTume = performance.now();
     this._displaceGeometry(geo);
+    const endTime = performance.now();
+    console.log(`Geometry displaced in ${(endTime - startTume).toFixed(2)} ms`);
 
+    const texBuildStart = performance.now();
     const tex = this._buildTexture();
     const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.9, metalness: 0.0 });
 
@@ -401,6 +403,9 @@ export class Planet {
     } else {
       this.mesh = new THREE.Mesh(geo, mat);
     }
+
+    const texBuildEnd = performance.now();
+    console.log(`Texture built in ${(texBuildEnd - texBuildStart).toFixed(2)} ms`);
 
     this._buildOcean();
 
@@ -418,8 +423,19 @@ export class Planet {
   /** Rebuild the planet with (optionally updated) params. */
   update(params: Partial<PlanetParams>): void {
     Object.assign(this.params, params);
+    this.rebuild();
+  }
+
+  rebuild(): void {
+    const startTime = performance.now();
     this._buildNoise();
+    const step1Time = performance.now();
+    console.log(`Noise rebuilt in ${(step1Time - startTime).toFixed(2)} ms`);
     this._calibrate();
+    const step2Time = performance.now();
+    console.log(`Noise calibrated in ${(step2Time - step1Time).toFixed(2)} ms`);
     this._createMesh();
+    const endTime = performance.now();
+    console.log(`Planet rebuilt in ${(endTime - startTime).toFixed(2)} ms`);
   }
 }
