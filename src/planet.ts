@@ -384,6 +384,10 @@ export class Planet {
       minFilter:  THREE.LinearFilter,
       magFilter:  THREE.LinearFilter,
     });
+    // RepeatWrapping on the displacement map ensures UV.x=1 wraps to UV.x=0,
+    // so both sides of the SphereGeometry seam sample identical texels — no gap.
+    this._dispTarget.texture.wrapS  = THREE.RepeatWrapping;
+    this._bakeTarget.texture.wrapS  = THREE.RepeatWrapping;
 
     this._bakeMat = new THREE.ShaderMaterial({
       vertexShader:   BAKE_VERT,
