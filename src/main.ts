@@ -166,7 +166,7 @@ function animate(): void {
 
   planet.group.rotation.y      += paused ? 0 : 0.0008;
   planet.cloudGroup.rotation.y += paused ? 0 : 0.00035;
-  planet.tickClouds(paused ? 0 : dt);
+  planet.tickClouds(paused ? 0 : dt, camera.position.length());
 
   // When sun shadow is disabled, keep the light locked to the camera so every
   // visible surface is always fully lit — no dark side.

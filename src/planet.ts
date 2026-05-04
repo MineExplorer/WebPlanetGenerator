@@ -615,7 +615,7 @@ export class Planet {
 
   private _buildClouds(): void {
     if (!this._cloudLayer) {
-      this._cloudLayer = new CloudLayer(this.params);
+      this._cloudLayer = new CloudLayer(this.params, this._renderer);
     } else {
       this._cloudLayer.build(this.params);
     }
@@ -625,8 +625,12 @@ export class Planet {
    * Advance the cloud animation by `dt` seconds.
    * Call once per frame from your render loop.
    */
-  tickClouds(dt: number): void {
-    this._cloudLayer?.tick(dt);
+  /** Advance the cloud animation by `dt` seconds.
+   * Pass `camDist` (camera distance from planet centre) for dynamic bake resolution.
+   * Call once per frame from your render loop.
+   */
+  tickClouds(dt: number, camDist?: number): void {
+    this._cloudLayer?.tick(dt, camDist);
   }
 
   // -------------------------------------------------------------------------
