@@ -31,12 +31,16 @@ scene.background = new THREE.Color(0x080d1a);
 // Camera + Controls
 // ---------------------------------------------------------------------------
 const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-camera.position.set(0, 0, 3.5);
+camera.position.set(0, 0, DEFAULT_PARAMS.radius * 3.5);
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
-controls.minDistance   = 1.3;
-controls.maxDistance   = 20;
+
+function updateZoom(): void {
+  const r = params.radius;
+  controls.minDistance = r * 1.15;
+  controls.maxDistance = r * 20;
+}
 
 // ---------------------------------------------------------------------------
 // Lighting
@@ -50,6 +54,7 @@ scene.add(sun);
 // Planet
 // ---------------------------------------------------------------------------
 const params: PlanetParams = { ...DEFAULT_PARAMS, seed: Math.random() };
+updateZoom();
 
 const planet = new Planet(params, renderer);
 scene.add(planet.group);
@@ -60,7 +65,7 @@ scene.add(planet.group);
 const gui = new GUI({ title: 'Planet Generator' });
 
 const shapeFolder = gui.addFolder('Shape');
-shapeFolder.add(params, 'radius',    0.4,  3.0,  0.05).onFinishChange(rebuild);
+shapeFolder.add(params, 'radius',    0.5,  3.0,  0.05).onFinishChange(rebuild);
 shapeFolder.add(params, 'segments',  32,   256,   8  ).onFinishChange(rebuild);
 shapeFolder.add(params, 'elevation', 0,    0.5,  0.01).onFinishChange(rebuild);
 shapeFolder.add(params, 'seaLevel',  0.0,  0.85, 0.01).name('sea level').onFinishChange(rebuild);
@@ -90,6 +95,7 @@ debugFolder.close();
 
 function rebuild(): void {
   planet.update(params);
+  updateZoom();
 }
 
 // ---------------------------------------------------------------------------
