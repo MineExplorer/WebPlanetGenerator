@@ -36,6 +36,8 @@ export interface PlanetParams {
   cloudOpacity: number;
   cloudHeight: number;
   showClouds: boolean;
+  // Ocean
+  fancyOcean: boolean;
 }
 
 interface SampleResult {
@@ -61,8 +63,8 @@ export const DEFAULT_PARAMS: PlanetParams = {
   tempOffset: 0.25,
   moistureOffset: 0,
   detailScale: 12.0,
-  detailStrength: 0.2,
-  elevation: 0.18,
+  detailStrength: 0.18,
+  elevation: 0.2,
   seaLevel: 0.54,
   topoMap: false,
   textureWidth: 2048,
@@ -72,6 +74,7 @@ export const DEFAULT_PARAMS: PlanetParams = {
   cloudOpacity: 0.90,
   cloudHeight: 0.05,
   showClouds: true,
+  fancyOcean: true,
 };
 
 // ---------------------------------------------------------------------------
@@ -123,6 +126,7 @@ uniform float uBiomeScale;
 uniform float uDetailScale;
 uniform float uDetailStrength;
 uniform int   uTopoMap;
+uniform int   uFancyOcean; // 1 = transparent water sphere, 0 = show seafloor
 uniform int   uMode; // 0 = colour, 1 = displacement grayscale
 // Climate additive offsets (sliders)
 uniform float uTempOffset;
@@ -199,6 +203,13 @@ float fbm(vec3 p, vec3 offset, float scale, int octaves, float persistence, floa
 // ---------------------------------------------------------------------------
 // Biome colour logic  (mirrors planet.ts CPU version)
 // ---------------------------------------------------------------------------
+vec3 seafloorColor(float hN, float seaLvl) {
+  float t = clamp(hN / max(0.001, seaLvl), 0.0, 1.0); // 0 = deepest, 1 = shore
+  vec3 deep    = vec3(0.020, 0.071, 0.200); // dark deep ocean
+  vec3 shallow = vec3(0.063, 0.278, 0.529); // lighter near shore
+  return mix(deep, shallow, t);
+}
+
 vec3 biomeColor(float hN, float temp, float moisture, float seaLvl, vec3 dir, vec3 offT, vec3 offM) {
   if (hN < seaLvl) {
     float t = (1.0 - hN / seaLvl) * 0.75;
@@ -236,14 +247,11 @@ vec3 biomeColor(float hN, float temp, float moisture, float seaLvl, vec3 dir, ve
 }
 
 vec3 heightColor(float hN, float seaLvl) {
-  // Ocean: deep navy → mid blue → shallow cyan-blue
   if (hN < seaLvl) {
-    float t = hN / max(0.001, seaLvl); // 0 = deepest, 1 = shore
-    vec3 deep    = vec3(0.031, 0.114, 0.310);
-    vec3 mid     = vec3(0.063, 0.278, 0.529);
-    vec3 shallow = vec3(0.173, 0.490, 0.663);
-    if (t < 0.5) return mix(deep, mid, t * 2.0);
-    return mix(mid, shallow, (t - 0.5) * 2.0);
+    float t = clamp(hN / max(0.001, seaLvl), 0.0, 1.0);
+    vec3 deep    = vec3(0.020, 0.071, 0.200);
+    vec3 shallow = vec3(0.063, 0.278, 0.529);
+    return mix(deep, shallow, t);
   }
 
   // Beach strip
@@ -292,7 +300,13 @@ void main() {
 
   float continent = fbm(dir, uOffContinent, uContinentScale, uContinentOctaves, 0.50, 2.0);
   float detail    = fbm(dir, uOffDetail,    uDetailScale,    4,                  0.45, 2.1) * uDetailStrength;
-  float h         = continent + detail;
+
+  // Reduce detail noise underwater: use continent-only height as a proxy for depth
+  // so high-frequency bumps don't roughen the seafloor / ocean surface.
+  float range0      = max(0.0001, uHMax - uHMin);
+  float hContApprox = clamp((continent - uHMin) / range0, 0.0, 1.0);
+  float detailFactor = smoothstep(uSeaLevel - 0.05, uSeaLevel + 0.05, hContApprox);
+  float h = continent + detail * mix(0.5, 1.0, detailFactor);
 
   // ---------------------------------------------------------------------------
   // Latitude-based climate  (geographic latitude: 0 = equator, PI/2 = poles)
@@ -323,9 +337,18 @@ void main() {
   float range = max(0.0001, uHMax - uHMin);
   float hN    = clamp((h - uHMin) / range, 0.0, 1.0);
 
-  vec3 col = uTopoMap != 0
-    ? heightColor(hN, uSeaLevel)
-    : biomeColor(hN, temp, moisture, uSeaLevel, dir, uOffTemp, uOffMoisture);
+  // When fancy ocean is off, clamp displacement to seaLevel so underwater
+  // terrain is raised flush with the waterline (no underwater holes).
+  float hNDisp = (uFancyOcean == 0) ? max(hN, uSeaLevel) : hN;
+
+  vec3 col;
+  if (uTopoMap != 0) {
+    col = heightColor(hN, uSeaLevel);
+  } else if (uFancyOcean == 0 && hN < uSeaLevel) {
+    col = seafloorColor(hN, uSeaLevel);
+  } else {
+    col = biomeColor(hN, temp, moisture, uSeaLevel, dir, uOffTemp, uOffMoisture);
+  }
 
   // Modulate colour by height so terrain relief is visible in the texture.
   // Land: remap hN from [seaLevel,1] → [0.6,1.0] so highest peaks are brightest.
@@ -340,9 +363,9 @@ void main() {
     col *= heightMod;
   }
 
-  // uMode 0 = colour output, 1 = grayscale hN for displacement map
+  // uMode 0 = colour output, 1 = grayscale hNDisp for displacement map
   if (uMode == 1) {
-    gl_FragColor = vec4(hN, hN, hN, 1.0);
+    gl_FragColor = vec4(hNDisp, hNDisp, hNDisp, 1.0);
   } else {
     gl_FragColor = vec4(col, 1.0);
   }
@@ -520,6 +543,7 @@ export class Planet {
         uDetailScale:      { value: this.params.detailScale },
         uDetailStrength:   { value: this.params.detailStrength },
         uTopoMap:          { value: this.params.topoMap ? 1 : 0 },
+        uFancyOcean:       { value: this.params.fancyOcean ? 1 : 0 },
         uMode:             { value: 0 },
         uTempOffset:       { value: this.params.tempOffset },
         uMoistureOffset:   { value: this.params.moistureOffset },
@@ -562,6 +586,7 @@ export class Planet {
     u.uDetailScale.value      = p.detailScale;
     u.uDetailStrength.value   = p.detailStrength;
     u.uTopoMap.value           = p.topoMap ? 1 : 0;
+    u.uFancyOcean.value        = p.fancyOcean ? 1 : 0;
     u.uTempOffset.value       = p.tempOffset;
     u.uMoistureOffset.value   = p.moistureOffset;
     u.uOffContinent.value     = this._layerOffset(0);
@@ -589,8 +614,8 @@ export class Planet {
   // -------------------------------------------------------------------------
 
   private _buildOcean(): void {
-    const { radius, segments, seaLevel, elevation } = this.params;
-    // Sits at exactly the height where hN = seaLevel in _displaceGeometry
+    const { radius, segments, seaLevel, elevation, fancyOcean } = this.params;
+    // Sits at exactly the height where hN = seaLevel in displacement
     const oceanRadius = radius + (seaLevel - 0.5) * elevation;
     const oceanGeo = new THREE.SphereGeometry(
       oceanRadius,
@@ -616,6 +641,7 @@ export class Planet {
     } else {
       this.oceanMesh = new THREE.Mesh(oceanGeo, oceanMat);
     }
+    this.oceanMesh.visible = fancyOcean;
   }
 
   // -------------------------------------------------------------------------

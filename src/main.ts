@@ -79,7 +79,6 @@ const gui = new GUI({ title: 'Planet Generator' });
 
 const shapeFolder = gui.addFolder('Shape');
 shapeFolder.add(params, 'radius',    0.5,  3.0,  0.05).onFinishChange(rebuild);
-shapeFolder.add(params, 'segments',  32,   256,   8  ).onFinishChange(rebuild);
 shapeFolder.add(params, 'elevation', 0,    0.5,  0.01).onFinishChange(rebuild);
 shapeFolder.add(params, 'seaLevel',  0.0,  0.85, 0.01).name('sea level').onFinishChange(rebuild);
 
@@ -106,6 +105,10 @@ const lightingState = { sunShadow: true };
 
 const appearanceFolder = gui.addFolder('Appearance');
 appearanceFolder.add(params, 'topoMap').name('topographic map').onFinishChange(rebuild);
+appearanceFolder.add(params, 'fancyOcean').name('fancy ocean').onChange((v: boolean) => {
+  planet.update(params);
+  updateZoom();
+});
 appearanceFolder.add(lightingState, 'sunShadow').name('sun shadow').onChange((v: boolean) => {
   sun.intensity          = 1.4;
   ambientLight.intensity = 0.8;
