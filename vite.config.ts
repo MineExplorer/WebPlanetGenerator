@@ -3,6 +3,7 @@ import { defineConfig, Plugin } from 'vite';
 function removeCrossorigin(): Plugin {
   return {
     name: 'remove-crossorigin',
+    apply: 'build',
     transformIndexHtml(html) {
       return html
         .replace(/<script([^>]*?) crossorigin([^>]*)>/g, '<script$1$2>')
