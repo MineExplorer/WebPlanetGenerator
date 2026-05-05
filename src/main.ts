@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import GUI from 'lil-gui';
-import { Planet, DEFAULT_PARAMS, PlanetParams } from './planet.js';
+import { Planet, DEFAULT_PARAMS } from './planet.js';
+import { PlanetParams } from './types/planetParams.js';
 
 // ---------------------------------------------------------------------------
 // Renderer
