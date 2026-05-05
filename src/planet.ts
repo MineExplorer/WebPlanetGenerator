@@ -31,6 +31,8 @@ export interface PlanetParams {
   topoMap: boolean;
   // Debug: show moisture map with conventional colours
   moistureView: boolean;
+  // Debug: show temperature map with conventional colours
+  tempView: boolean;
   // Canvas texture resolution (independent of geometry segments)
   textureWidth: number;
   textureHeight: number;
@@ -80,6 +82,7 @@ export const DEFAULT_PARAMS: PlanetParams = {
   shoreWidth: 0.02,
   topoMap: false,
   moistureView: false,
+  tempView: false,
   textureWidth: 2048,
   textureHeight: 1024,
   cloudScale: 3,
@@ -145,6 +148,7 @@ uniform float uDetailScale;
 uniform float uDetailStrength;
 uniform int   uTopoMap;
 uniform int   uMoistureView;
+uniform int   uTempView;
 uniform int   uFancyOcean; // 1 = transparent water sphere, 0 = show seafloor
 uniform int   uMode; // 0 = colour, 1 = displacement grayscale
 // Climate additive offsets (sliders)
@@ -234,6 +238,25 @@ float fbm(vec3 p, vec3 offset, float scale, int octaves, float persistence, floa
 // ---------------------------------------------------------------------------
 // Conventional moisture-map palette
 // Dry (0.0) → amber → yellow → yellow-green → green → dark green → deep forest (1.0)
+// Conventional temperature palette  (temp in [-1, 1])
+// -1 = polar ice → cold blue → cool cyan → mild green → warm yellow → hot orange → +1 scorching red
+vec3 tempColor(float t) {
+  float n = t * 0.5 + 0.5; // remap [-1,1] → [0,1]
+  const vec3 c0 = vec3(0.878, 0.957, 1.000); // polar ice   near-white blue
+  const vec3 c1 = vec3(0.196, 0.525, 0.878); // arctic      deep blue
+  const vec3 c2 = vec3(0.149, 0.773, 0.851); // cold        cyan
+  const vec3 c3 = vec3(0.310, 0.776, 0.388); // cool        green
+  const vec3 c4 = vec3(0.949, 0.929, 0.212); // mild        yellow
+  const vec3 c5 = vec3(0.957, 0.576, 0.102); // warm        orange
+  const vec3 c6 = vec3(0.820, 0.102, 0.063); // hot         red
+  if (n < 0.167) return mix(c0, c1, n / 0.167);
+  if (n < 0.333) return mix(c1, c2, (n - 0.167) / 0.167);
+  if (n < 0.500) return mix(c2, c3, (n - 0.333) / 0.167);
+  if (n < 0.667) return mix(c3, c4, (n - 0.500) / 0.167);
+  if (n < 0.833) return mix(c4, c5, (n - 0.667) / 0.167);
+  return mix(c5, c6, (n - 0.833) / 0.167);
+}
+
 vec3 moistureColor(float m) {
   const vec3 c0 = vec3(0.710, 0.569, 0.200); // hyper-arid  amber
   const vec3 c1 = vec3(0.820, 0.749, 0.176); // arid        yellow
@@ -402,7 +425,14 @@ void main() {
   float hNDisp = (uFancyOcean == 0) ? max(hN, uSeaLevel) : hN;
 
   vec3 col;
-  if (uMoistureView != 0) {
+  if (uTempView != 0) {
+    // Flat ocean, temperature palette on land
+    if (hN < uSeaLevel) {
+      col = vec3(0.118, 0.306, 0.651); // flat ocean blue
+    } else {
+      col = tempColor(temp);
+    }
+  } else if (uMoistureView != 0) {
     // Flat ocean, moisture palette on land — no height modulation so values read cleanly
     if (hN < uSeaLevel) {
       col = vec3(0.118, 0.306, 0.651); // flat ocean blue
@@ -421,7 +451,7 @@ void main() {
   // Skipped for moisture view (flat values communicate information more clearly).
   // Land: remap hN from [seaLevel,1] → [0.6,1.0] so highest peaks are brightest.
   // Ocean: remap from [0,seaLevel] → [0.5,0.85] for subtle depth variation.
-  if (uMode == 0 && uMoistureView == 0) {
+  if (uMode == 0 && uMoistureView == 0 && uTempView == 0) {
     float heightMod;
     if (hN >= uSeaLevel) {
       heightMod = 0.60 + 0.40 * (hN - uSeaLevel) / max(0.001, 1.0 - uSeaLevel);
@@ -605,6 +635,7 @@ export class Planet {
         uDetailStrength:   { value: this.params.detailStrength },
         uTopoMap:          { value: this.params.topoMap ? 1 : 0 },
         uMoistureView:     { value: this.params.moistureView ? 1 : 0 },
+        uTempView:         { value: this.params.tempView ? 1 : 0 },
         uFancyOcean:       { value: this.params.fancyOcean ? 1 : 0 },
         uMode:             { value: 0 },
         uTempOffset:        { value: this.params.tempOffset },
@@ -655,6 +686,7 @@ export class Planet {
     u.uDetailStrength.value   = p.detailStrength;
     u.uTopoMap.value           = p.topoMap ? 1 : 0;
     u.uMoistureView.value      = p.moistureView ? 1 : 0;
+    u.uTempView.value          = p.tempView ? 1 : 0;
     u.uFancyOcean.value        = p.fancyOcean ? 1 : 0;
     u.uTempOffset.value        = p.tempOffset;
     u.uMoistureOffset.value    = p.moistureOffset;

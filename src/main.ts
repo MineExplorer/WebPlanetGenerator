@@ -109,6 +109,7 @@ const lightingState = { sunShadow: true };
 const appearanceFolder = gui.addFolder('Appearance');
 appearanceFolder.add(params, 'topoMap').name('topographic map').onFinishChange(rebuild);
 appearanceFolder.add(params, 'moistureView').name('moisture map').onFinishChange(rebuild);
+appearanceFolder.add(params, 'tempView').name('temperature map').onFinishChange(rebuild);
 appearanceFolder.add(params, 'fancyOcean').name('fancy ocean').onChange((v: boolean) => {
   planet.update(params);
   updateZoom();
