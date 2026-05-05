@@ -4,6 +4,15 @@ import GUI from 'lil-gui';
 import { Planet, DEFAULT_PARAMS } from './planet.js';
 import { PlanetParams } from './types/planetParams.js';
 
+type PrefabParams = Omit<PlanetParams, 'topoMap' | 'moistureView' | 'tempView' | 'fancyOcean' | 'showGrid'>;
+
+interface PlanetPrefabFile {
+  version: 1;
+  params: PrefabParams;
+}
+
+const EXCLUDED_PREFAB_KEYS = ['topoMap', 'moistureView', 'tempView', 'fancyOcean', 'showGrid'] as const;
+
 // ---------------------------------------------------------------------------
 // Renderer
 // ---------------------------------------------------------------------------
@@ -73,10 +82,77 @@ updateZoom();
 const planet = new Planet(params, renderer);
 scene.add(planet.group);
 
+function refreshGuiDisplays(root: GUI): void {
+  root.controllersRecursive().forEach((controller) => controller.updateDisplay());
+}
+
+function buildPrefabParams(source: PlanetParams): PrefabParams {
+  const prefab = { ...source } as Partial<PlanetParams>;
+  for (const key of EXCLUDED_PREFAB_KEYS) delete prefab[key];
+  return prefab as PrefabParams;
+}
+
+function readPrefabParams(payload: unknown): Partial<PrefabParams> | null {
+  if (!payload || typeof payload !== 'object') return null;
+
+  const maybeWrapped = 'params' in payload
+    ? (payload as { params?: unknown }).params
+    : payload;
+
+  if (!maybeWrapped || typeof maybeWrapped !== 'object') return null;
+
+  const candidate = maybeWrapped as Record<string, unknown>;
+  const result: Partial<PrefabParams> = {};
+
+  for (const key of Object.keys(DEFAULT_PARAMS) as Array<keyof PlanetParams>) {
+    if (EXCLUDED_PREFAB_KEYS.includes(key as typeof EXCLUDED_PREFAB_KEYS[number])) continue;
+
+    const value = candidate[key];
+    if (value === undefined) continue;
+
+    const defaultValue = DEFAULT_PARAMS[key];
+    if (typeof defaultValue === 'number' && typeof value === 'number' && Number.isFinite(value)) {
+      (result as Record<string, unknown>)[key] = value;
+    }
+    if (typeof defaultValue === 'boolean' && typeof value === 'boolean') {
+      (result as Record<string, unknown>)[key] = value;
+    }
+  }
+
+  return Object.keys(result).length > 0 ? result : null;
+}
+
+function downloadPrefab(): void {
+  const prefab: PlanetPrefabFile = {
+    version: 1,
+    params: buildPrefabParams(params),
+  };
+
+  const blob = new Blob([JSON.stringify(prefab, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `planet-prefab-${Math.round(params.seed * 1000)}.json`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function applyImportedPrefab(prefab: Partial<PrefabParams>): void {
+  Object.assign(params, prefab);
+  rebuild();
+  refreshGuiDisplays(gui);
+}
+
 // ---------------------------------------------------------------------------
 // GUI
 // ---------------------------------------------------------------------------
 const gui = new GUI({ title: 'Planet Generator' });
+
+const prefabInput = document.createElement('input');
+prefabInput.type = 'file';
+prefabInput.accept = '.json,application/json';
+prefabInput.style.display = 'none';
+document.body.appendChild(prefabInput);
 
 const shapeFolder = gui.addFolder('Shape');
 shapeFolder.add(params, 'radius',    0.5,  3.0,  0.05).onFinishChange(rebuild);
@@ -110,17 +186,15 @@ seedFolder.add({ regen() {
 const lightingState = { sunShadow: true };
 
 const mapState = { mode: 'biome' };
-const mapFolder = gui.addFolder('Map');
-mapFolder.add(mapState, 'mode', ['biome', 'topographic', 'precipitation', 'temperature'])
-  .name('mode')
+const appearanceFolder = gui.addFolder('Appearance');
+appearanceFolder.add(mapState, 'mode', ['biome', 'topographic', 'precipitation', 'temperature'])
+  .name('map')
   .onChange((v: string) => {
     params.topoMap      = v === 'topographic';
     params.moistureView = v === 'precipitation';
     params.tempView     = v === 'temperature';
     rebuild();
   });
-
-const appearanceFolder = gui.addFolder('Appearance');
 appearanceFolder.add(params, 'fancyOcean').name('fancy ocean').onChange((v: boolean) => {
   planet.update(params);
   updateZoom();
@@ -141,6 +215,11 @@ cloudFolder.add(params, 'cloudHeight',  0.01, 0.12, 0.005).name('altitude').onFi
 cloudFolder.add(params, 'cloudScale',   0.5,  6.0,  0.1  ).name('scale').onFinishChange(rebuildClouds);
 cloudFolder.add(params, 'cloudDensity', 0.0,  0.6,  0.01 ).name('coverage').onFinishChange(rebuildClouds);
 cloudFolder.add(params, 'cloudOpacity', 0.1,  1.0,  0.01 ).name('opacity').onFinishChange(rebuildClouds);
+
+const prefabFolder = gui.addFolder('Prefabs');
+prefabFolder.add({ exportJson: downloadPrefab }, 'exportJson').name('💾 Export JSON');
+prefabFolder.add({ importJson() { prefabInput.click(); } }, 'importJson').name('📥 Import JSON');
+prefabFolder.close();
 
 function rebuild(): void {
   planet.update(params);
@@ -181,6 +260,25 @@ fileInput.addEventListener('change', () => {
     seaLevelCtrl.updateDisplay();
   });
   fileInput.value = '';
+});
+
+prefabInput.addEventListener('change', async () => {
+  const file = prefabInput.files?.[0];
+  if (!file) return;
+
+  try {
+    const parsed = JSON.parse(await file.text()) as unknown;
+    const prefab = readPrefabParams(parsed);
+    if (!prefab) {
+      throw new Error('Invalid prefab JSON.');
+    }
+    applyImportedPrefab(prefab);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Could not import prefab JSON.';
+    window.alert(message);
+  } finally {
+    prefabInput.value = '';
+  }
 });
 
 // ---------------------------------------------------------------------------
