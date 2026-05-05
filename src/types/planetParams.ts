@@ -43,4 +43,6 @@ export interface PlanetParams {
   // Large-scale (continent-size) moisture map
   moistureMapScale: number;
   moistureMapStrength: number;
+  // How strongly latitude drives temperature and moisture (0 = none, 1 = normal, 2 = extreme)
+  latitudeFactor: number;
 }

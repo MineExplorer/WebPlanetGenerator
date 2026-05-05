@@ -90,11 +90,11 @@ noiseFolder.add(params, 'continentOctaves', 1,   8,    1   ).name('continent oct
 noiseFolder.add(params, 'biomeScale',       0.5, 6.0,  0.05).name('climate noise scale').onFinishChange(rebuild);
 noiseFolder.add(params, 'detailScale',      2.0, 20.0, 0.5 ).name('detail scale'     ).onFinishChange(rebuild);
 noiseFolder.add(params, 'detailStrength',   0,   0.5,  0.01).name('detail strength'  ).onFinishChange(rebuild);
-noiseFolder.add(params, 'moistureMapScale',     0.1, 2.0,  0.05).name('moisture noise scale'    ).onFinishChange(rebuild);
-noiseFolder.add(params, 'moistureMapStrength',  0.0, 1.5,  0.02).name('moisture noise strength' ).onFinishChange(rebuild);
+noiseFolder.add(params, 'moistureMapScale',     0.4, 2.0,  0.05).name('moisture noise scale'    ).onFinishChange(rebuild);
 noiseFolder.close();
 
 const climateFolder = gui.addFolder('Climate');
+climateFolder.add(params, 'latitudeFactor',       0.0, 2.0,  0.01).name('latitude factor'        ).onFinishChange(rebuild);
 climateFolder.add(params, 'tempOffset',          -1.0, 1.0,  0.01).name('temperature offset'   ).onFinishChange(rebuild);
 climateFolder.add(params, 'moistureOffset',      -0.5, 0.5,  0.01).name('moisture offset'       ).onFinishChange(rebuild);
 

@@ -30,6 +30,9 @@ uniform vec3 uOffMoistureMap;
 uniform float uMoistureMapScale;
 uniform float uMoistureMapStrength;
 
+// Latitude influence factor: 0 = no lat effect, 1 = normal, 2 = extreme
+uniform float uLatitudeFactor;
+
 // Custom height map — when uUseCustomMap=1 the texture replaces noise-derived hN
 // for both the colour and displacement outputs.
 uniform int       uUseCustomMap;
@@ -249,15 +252,16 @@ void main() {
   float lat = asin(sinLat); // geographic latitude in radians [0, PI/2]
 
   // Temperature: linear decline equator (+1) → poles (-1), crossing 0 at 45°.
-  // lat / (PI/4) maps [0, PI/2] → [0, 2], so baseTemp = 1 - that.
-  float baseTemp = clamp(1.0 - lat / (3.14159265359 * 0.25), -1.0, 1.0);
+  // Scaled by uLatitudeFactor: 0 = flat/neutral (0), 1 = normal, 2 = extreme.
+  float baseTemp = clamp(uLatitudeFactor * (1.0 - lat / (3.14159265359 * 0.25)), -1.0, 1.0);
 
   // Moisture [0,1]: cos(6·lat_rad) gives wind-belt pattern remapped to [0,1].
+  // uLatitudeFactor scales the variation around the neutral midpoint (0.5).
   //   0°  (ITCZ)        → 1.0  max  (equatorial rainforest)
   //   30° (subtropical) → 0.0  min  (trade-wind deserts)
   //   60° (subpolar)    → 1.0  2nd max  (temperate forests)
   //   90° (polar)       → 0.0  min  (polar desert)
-  float baseMoist = cos(6.0 * lat) * 0.5 + 0.5;
+  float baseMoist = clamp(cos(6.0 * lat) * 0.5 * uLatitudeFactor + 0.5, 0.0, 1.0);
 
   // Continent-scale moisture map: very low-frequency noise that creates
   // large wet/dry zones (rainforest belts, desert continents) independent
