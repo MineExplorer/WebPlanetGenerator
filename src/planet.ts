@@ -370,7 +370,7 @@ export class Planet {
     } else {
       this.oceanMesh = new THREE.Mesh(oceanGeo, oceanMat);
     }
-    this.oceanMesh.visible = fancyOcean;
+    this.oceanMesh.visible = fancyOcean && this.params.seaLevel > 0;
   }
 
   // -------------------------------------------------------------------------
