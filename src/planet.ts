@@ -29,6 +29,8 @@ export interface PlanetParams {
   shoreWidth: number;
   // Debug: show greyscale height + flat-blue sea instead of biomes
   topoMap: boolean;
+  // Debug: show moisture map with conventional colours
+  moistureView: boolean;
   // Canvas texture resolution (independent of geometry segments)
   textureWidth: number;
   textureHeight: number;
@@ -44,6 +46,9 @@ export interface PlanetParams {
   showGrid: boolean;
   // Elevation-based moisture drying
   elevationMoisture: boolean;
+  // Large-scale (continent-size) moisture map
+  moistureMapScale: number;
+  moistureMapStrength: number;
 }
 
 interface SampleResult {
@@ -74,6 +79,7 @@ export const DEFAULT_PARAMS: PlanetParams = {
   seaLevel: 0.54,
   shoreWidth: 0.02,
   topoMap: false,
+  moistureView: false,
   textureWidth: 2048,
   textureHeight: 1024,
   cloudScale: 3,
@@ -84,6 +90,8 @@ export const DEFAULT_PARAMS: PlanetParams = {
   fancyOcean: true,
   showGrid: false,
   elevationMoisture: true,
+  moistureMapScale: 1.2,
+  moistureMapStrength: 1,
 };
 
 // ---------------------------------------------------------------------------
@@ -136,6 +144,7 @@ uniform float uBiomeScale;
 uniform float uDetailScale;
 uniform float uDetailStrength;
 uniform int   uTopoMap;
+uniform int   uMoistureView;
 uniform int   uFancyOcean; // 1 = transparent water sphere, 0 = show seafloor
 uniform int   uMode; // 0 = colour, 1 = displacement grayscale
 // Climate additive offsets (sliders)
@@ -147,6 +156,11 @@ uniform vec3 uOffContinent;
 uniform vec3 uOffDetail;
 uniform vec3 uOffTemp;
 uniform vec3 uOffMoisture;
+uniform vec3 uOffMoistureMap;
+
+// Large-scale moisture map
+uniform float uMoistureMapScale;
+uniform float uMoistureMapStrength;
 
 // Custom height map — when uUseCustomMap=1 the texture replaces noise-derived hN
 // for both the colour and displacement outputs.
@@ -218,6 +232,24 @@ float fbm(vec3 p, vec3 offset, float scale, int octaves, float persistence, floa
 // ---------------------------------------------------------------------------
 // Biome colour logic  (mirrors planet.ts CPU version)
 // ---------------------------------------------------------------------------
+// Conventional moisture-map palette
+// Dry (0.0) → amber → yellow → yellow-green → green → dark green → deep forest (1.0)
+vec3 moistureColor(float m) {
+  const vec3 c0 = vec3(0.710, 0.569, 0.200); // hyper-arid  amber
+  const vec3 c1 = vec3(0.820, 0.749, 0.176); // arid        yellow
+  const vec3 c2 = vec3(0.659, 0.753, 0.227); // semi-arid   yellow-green
+  const vec3 c3 = vec3(0.353, 0.620, 0.251); // sub-humid   medium green
+  const vec3 c4 = vec3(0.176, 0.478, 0.188); // humid       dark green
+  const vec3 c5 = vec3(0.063, 0.306, 0.094); // very wet    deep forest
+  const vec3 c6 = vec3(0.016, 0.173, 0.047); // rainforest  near-black forest
+  if (m < 0.167) return mix(c0, c1, m / 0.167);
+  if (m < 0.333) return mix(c1, c2, (m - 0.167) / 0.167);
+  if (m < 0.500) return mix(c2, c3, (m - 0.333) / 0.167);
+  if (m < 0.667) return mix(c3, c4, (m - 0.500) / 0.167);
+  if (m < 0.833) return mix(c4, c5, (m - 0.667) / 0.167);
+  return mix(c5, c6, (m - 0.833) / 0.167);
+}
+
 vec3 seafloorColor(float hN, float seaLvl) {
   float t = clamp(hN / max(0.001, seaLvl), 0.0, 1.0); // 0 = deepest, 1 = shore
   vec3 deep    = vec3(0.020, 0.071, 0.200); // dark deep ocean
@@ -340,6 +372,12 @@ void main() {
   //   90° (polar)       → 0.0  min  (polar desert)
   float baseMoist = cos(6.0 * lat) * 0.5 + 0.5;
 
+  // Continent-scale moisture map: very low-frequency noise that creates
+  // large wet/dry zones (rainforest belts, desert continents) independent
+  // of latitude. Output is [-1,1]; positive = wetter, negative = drier.
+  float moistureMap = fbm(dir, uOffMoistureMap, uMoistureMapScale, 4, 0.50, 2.0);
+  baseMoist = clamp(baseMoist + moistureMap * uMoistureMapStrength, 0.0, 1.0);
+
   // Noise perturbation on top of the base patterns
   float noiseTemp  = fbm(dir, uOffTemp,     uBiomeScale,       3, 0.55, 2.0);
   float noiseMoist = fbm(dir, uOffMoisture, uBiomeScale * 0.8, 3, 0.50, 2.0);
@@ -364,7 +402,14 @@ void main() {
   float hNDisp = (uFancyOcean == 0) ? max(hN, uSeaLevel) : hN;
 
   vec3 col;
-  if (uTopoMap != 0) {
+  if (uMoistureView != 0) {
+    // Flat ocean, moisture palette on land — no height modulation so values read cleanly
+    if (hN < uSeaLevel) {
+      col = vec3(0.118, 0.306, 0.651); // flat ocean blue
+    } else {
+      col = moistureColor(moisture);
+    }
+  } else if (uTopoMap != 0) {
     col = heightColor(hN, uSeaLevel);
   } else if (uFancyOcean == 0 && hN < uSeaLevel) {
     col = seafloorColor(hN, uSeaLevel);
@@ -373,9 +418,10 @@ void main() {
   }
 
   // Modulate colour by height so terrain relief is visible in the texture.
+  // Skipped for moisture view (flat values communicate information more clearly).
   // Land: remap hN from [seaLevel,1] → [0.6,1.0] so highest peaks are brightest.
   // Ocean: remap from [0,seaLevel] → [0.5,0.85] for subtle depth variation.
-  if (uMode == 0) {
+  if (uMode == 0 && uMoistureView == 0) {
     float heightMod;
     if (hN >= uSeaLevel) {
       heightMod = 0.60 + 0.40 * (hN - uSeaLevel) / max(0.001, 1.0 - uSeaLevel);
@@ -434,7 +480,6 @@ export class Planet {
   // Reusable GPU bake objects — created once, reused on every rebuild
   private _bakeScene!:  THREE.Scene;
   private _bakeCam!:    THREE.OrthographicCamera;
-  private _bakeQuad!:   THREE.Mesh;
   private _bakeMat!:    THREE.ShaderMaterial;
   private _bakeTarget!: THREE.WebGLRenderTarget; // colour
   private _dispTarget!: THREE.WebGLRenderTarget; // grayscale hN for displacementMap
@@ -454,11 +499,11 @@ export class Planet {
   // -------------------------------------------------------------------------
 
   private _buildNoise(): void {
-    this._noise       = new SimplexNoise(this.params.seed.toString());
-    this._offContinent = this._layerOffset(0);
-    this._offDetail    = this._layerOffset(1);
-    this._offTemp      = this._layerOffset(2);
-    this._offMoisture  = this._layerOffset(3);
+    this._noise        = new SimplexNoise(this.params.seed.toString());
+    this._offContinent  = this._layerOffset(0);
+    this._offDetail     = this._layerOffset(1);
+    this._offTemp       = this._layerOffset(2);
+    this._offMoisture   = this._layerOffset(3);
   }
 
   /**
@@ -484,17 +529,6 @@ export class Planet {
     }
     this._hMin = hMin;
     this._hMax = hMax;
-  }
-
-  /**
-   * Remap raw noise h → calibrated [0, 1].
-   * 0 = absolute lowest point,  1 = absolute highest point on this planet.
-   * seaLevel=0.45 therefore means "45 % of height range is below water".
-   */
-  private _norm(h: number): number {
-    const range = this._hMax - this._hMin;
-    if (range === 0) return 0.5;
-    return Math.min(1, Math.max(0, (h - this._hMin) / range));
   }
 
   /** Sample all four noise layers at a unit-sphere point (x, y, z). */
@@ -570,6 +604,7 @@ export class Planet {
         uDetailScale:      { value: this.params.detailScale },
         uDetailStrength:   { value: this.params.detailStrength },
         uTopoMap:          { value: this.params.topoMap ? 1 : 0 },
+        uMoistureView:     { value: this.params.moistureView ? 1 : 0 },
         uFancyOcean:       { value: this.params.fancyOcean ? 1 : 0 },
         uMode:             { value: 0 },
         uTempOffset:        { value: this.params.tempOffset },
@@ -577,16 +612,18 @@ export class Planet {
         uElevationMoisture: { value: this.params.elevationMoisture ? 1 : 0 },
         uUseCustomMap:      { value: 0 },
         uCustomHeightTex:   { value: null },
-        uOffContinent:      { value: this._layerOffset(0) },
-        uOffDetail:         { value: this._layerOffset(1) },
-        uOffTemp:           { value: this._layerOffset(2) },
-        uOffMoisture:       { value: this._layerOffset(3) },
+        uOffContinent:        { value: this._layerOffset(0) },
+        uOffDetail:           { value: this._layerOffset(1) },
+        uOffTemp:             { value: this._layerOffset(2) },
+        uOffMoisture:         { value: this._layerOffset(3) },
+        uOffMoistureMap:      { value: this._layerOffset(4) },
+        uMoistureMapScale:    { value: this.params.moistureMapScale },
+        uMoistureMapStrength: { value: this.params.moistureMapStrength },
       },
     });
 
     const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this._bakeMat);
     this._bakeScene.add(quad);
-    this._bakeQuad = quad;
   }
 
   /**
@@ -617,14 +654,18 @@ export class Planet {
     u.uDetailScale.value      = p.detailScale;
     u.uDetailStrength.value   = p.detailStrength;
     u.uTopoMap.value           = p.topoMap ? 1 : 0;
+    u.uMoistureView.value      = p.moistureView ? 1 : 0;
     u.uFancyOcean.value        = p.fancyOcean ? 1 : 0;
     u.uTempOffset.value        = p.tempOffset;
     u.uMoistureOffset.value    = p.moistureOffset;
     u.uElevationMoisture.value = p.elevationMoisture ? 1 : 0;
-    u.uOffContinent.value      = this._layerOffset(0);
-    u.uOffDetail.value         = this._layerOffset(1);
-    u.uOffTemp.value           = this._layerOffset(2);
-    u.uOffMoisture.value       = this._layerOffset(3);
+    u.uOffContinent.value        = this._layerOffset(0);
+    u.uOffDetail.value           = this._layerOffset(1);
+    u.uOffTemp.value             = this._layerOffset(2);
+    u.uOffMoisture.value         = this._layerOffset(3);
+    u.uOffMoistureMap.value      = this._layerOffset(4);
+    u.uMoistureMapScale.value    = p.moistureMapScale;
+    u.uMoistureMapStrength.value = p.moistureMapStrength;
 
     // Custom height map: feed texture directly into the shader so both the colour
     // and displacement passes derive hN from the real map, not from noise.

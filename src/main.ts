@@ -80,7 +80,7 @@ const gui = new GUI({ title: 'Planet Generator' });
 const shapeFolder = gui.addFolder('Shape');
 shapeFolder.add(params, 'radius',    0.5,  3.0,  0.05).onFinishChange(rebuild);
 shapeFolder.add(params, 'elevation', 0,    0.5,  0.01).onFinishChange(rebuild);
-const seaLevelCtrl = shapeFolder.add(params, 'seaLevel',   0.0,  0.85, 0.01 ).name('sea level'  ).onFinishChange(rebuild);
+const seaLevelCtrl = shapeFolder.add(params, 'seaLevel',   0.0,  0.85, 0.005 ).name('sea level'  ).onFinishChange(rebuild);
 shapeFolder.add(params, 'shoreWidth', 0.0,  0.15, 0.002).name('shore width').onFinishChange(rebuild);
 
 const noiseFolder = gui.addFolder('Noise');
@@ -91,8 +91,10 @@ noiseFolder.add(params, 'detailScale',      2.0, 20.0, 0.5 ).name('detail scale'
 noiseFolder.add(params, 'detailStrength',   0,   0.5,  0.01).name('detail strength'  ).onFinishChange(rebuild);
 
 const climateFolder = gui.addFolder('Climate');
-climateFolder.add(params, 'tempOffset',     -1.0, 1.0, 0.01).name('temperature offset').onFinishChange(rebuild);
-climateFolder.add(params, 'moistureOffset', -0.5, 0.5, 0.01).name('moisture offset'   ).onFinishChange(rebuild);
+climateFolder.add(params, 'tempOffset',          -1.0, 1.0,  0.01).name('temperature offset'   ).onFinishChange(rebuild);
+climateFolder.add(params, 'moistureOffset',      -0.5, 0.5,  0.01).name('moisture offset'       ).onFinishChange(rebuild);
+climateFolder.add(params, 'moistureMapScale',     0.1, 2.0,  0.05).name('moisture map scale'    ).onFinishChange(rebuild);
+climateFolder.add(params, 'moistureMapStrength',  0.0, 1.5,  0.02).name('moisture map strength' ).onFinishChange(rebuild);
 
 const seedFolder  = gui.addFolder('Seed');
 const seedCtrl    = seedFolder.add(params, 'seed').onFinishChange(rebuild);
@@ -106,6 +108,7 @@ const lightingState = { sunShadow: true };
 
 const appearanceFolder = gui.addFolder('Appearance');
 appearanceFolder.add(params, 'topoMap').name('topographic map').onFinishChange(rebuild);
+appearanceFolder.add(params, 'moistureView').name('moisture map').onFinishChange(rebuild);
 appearanceFolder.add(params, 'fancyOcean').name('fancy ocean').onChange((v: boolean) => {
   planet.update(params);
   updateZoom();
