@@ -291,24 +291,30 @@ void main() {
     hN = texture2D(uCustomHeightTex, vUv).r;
   }
 
+  // Height-adjusted temp/moisture — same logic as biomeColor, used by debug views.
+  float beachTop = uSeaLevel + uShoreWidth;
+  float landH    = (hN > beachTop) ? (hN - beachTop) / max(0.01, 1.0 - beachTop) : 0.0;
+  float tempH     = clamp(temp     - pow(landH, 3.0) * 3.0 * uHeightFactor, -1.0, 1.0);
+  float moistureH = clamp(moisture * (1.0 - 0.6 * landH * uHeightFactor),    0.0, 1.0);
+
   // When fancy ocean is off, clamp displacement to seaLevel so underwater
   // terrain is raised flush with the waterline (no underwater holes).
   float hNDisp = (uFancyOcean == 0) ? max(hN, uSeaLevel) : hN;
 
   vec3 col;
   if (uTempView != 0) {
-    // Flat ocean, temperature palette on land
+    // Flat ocean, temperature palette on land (height-adjusted)
     if (hN < uSeaLevel) {
       col = vec3(0.118, 0.306, 0.651); // flat ocean blue
     } else {
-      col = tempColor(temp);
+      col = tempColor(tempH);
     }
   } else if (uMoistureView != 0) {
-    // Flat ocean, moisture palette on land — no height modulation so values read cleanly
+    // Flat ocean, moisture palette on land (height-adjusted)
     if (hN < uSeaLevel) {
       col = vec3(0.118, 0.306, 0.651); // flat ocean blue
     } else {
-      col = moistureColor(moisture);
+      col = moistureColor(moistureH);
     }
   } else if (uTopoMap != 0) {
     col = heightColor(hN, uSeaLevel);
