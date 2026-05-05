@@ -90,12 +90,13 @@ noiseFolder.add(params, 'continentOctaves', 1,   8,    1   ).name('continent oct
 noiseFolder.add(params, 'biomeScale',       0.5, 6.0,  0.05).name('climate noise scale').onFinishChange(rebuild);
 noiseFolder.add(params, 'detailScale',      2.0, 20.0, 0.5 ).name('detail scale'     ).onFinishChange(rebuild);
 noiseFolder.add(params, 'detailStrength',   0,   0.5,  0.01).name('detail strength'  ).onFinishChange(rebuild);
+noiseFolder.add(params, 'moistureMapScale',     0.1, 2.0,  0.05).name('moisture noise scale'    ).onFinishChange(rebuild);
+noiseFolder.add(params, 'moistureMapStrength',  0.0, 1.5,  0.02).name('moisture noise strength' ).onFinishChange(rebuild);
+noiseFolder.close();
 
 const climateFolder = gui.addFolder('Climate');
 climateFolder.add(params, 'tempOffset',          -1.0, 1.0,  0.01).name('temperature offset'   ).onFinishChange(rebuild);
 climateFolder.add(params, 'moistureOffset',      -0.5, 0.5,  0.01).name('moisture offset'       ).onFinishChange(rebuild);
-climateFolder.add(params, 'moistureMapScale',     0.1, 2.0,  0.05).name('moisture map scale'    ).onFinishChange(rebuild);
-climateFolder.add(params, 'moistureMapStrength',  0.0, 1.5,  0.02).name('moisture map strength' ).onFinishChange(rebuild);
 
 const seedFolder  = gui.addFolder('Seed');
 const seedCtrl    = seedFolder.add(params, 'seed').onFinishChange(rebuild);
@@ -107,10 +108,18 @@ seedFolder.add({ regen() {
 
 const lightingState = { sunShadow: true };
 
+const mapState = { mode: 'biome' };
+const mapFolder = gui.addFolder('Map');
+mapFolder.add(mapState, 'mode', ['biome', 'topographic', 'precipitation', 'temperature'])
+  .name('mode')
+  .onChange((v: string) => {
+    params.topoMap      = v === 'topographic';
+    params.moistureView = v === 'precipitation';
+    params.tempView     = v === 'temperature';
+    rebuild();
+  });
+
 const appearanceFolder = gui.addFolder('Appearance');
-appearanceFolder.add(params, 'topoMap').name('topographic map').onFinishChange(rebuild);
-appearanceFolder.add(params, 'moistureView').name('moisture map').onFinishChange(rebuild);
-appearanceFolder.add(params, 'tempView').name('temperature map').onFinishChange(rebuild);
 appearanceFolder.add(params, 'fancyOcean').name('fancy ocean').onChange((v: boolean) => {
   planet.update(params);
   updateZoom();
