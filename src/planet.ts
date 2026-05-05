@@ -84,10 +84,9 @@ function fbm(
 export class Planet {
   params: PlanetParams;
 
-  /** Three.js group containing terrain mesh + ocean mesh. Add this to the scene. */
+  /** Three.js group containing the planet surface and overlays. Add this to the scene. */
   group!: THREE.Group;
   mesh!: THREE.Mesh;
-  oceanMesh!: THREE.Mesh;
   gridMesh!: THREE.LineSegments;
 
   /** Cloud layer — rotate `cloudGroup` separately to drift clouds. */
@@ -339,41 +338,6 @@ export class Planet {
   }
 
   // -------------------------------------------------------------------------
-  // Ocean sphere
-  // -------------------------------------------------------------------------
-
-  private _buildOcean(): void {
-    const { radius, segments, seaLevel, elevation, fancyOcean } = this.params;
-    // Sits at exactly the height where hN = seaLevel in displacement
-    const oceanRadius = radius + (seaLevel - 0.5) * elevation;
-    const oceanGeo = new THREE.SphereGeometry(
-      oceanRadius,
-      Math.max(64, segments),
-      Math.max(64, segments),
-    );
-    const oceanMat = new THREE.MeshPhysicalMaterial({
-      color:             0x0a4a9a,
-      emissive:          0x001133,
-      emissiveIntensity: 0.15,
-      transparent: true,
-      opacity:     0.82,
-      roughness:   0.05,
-      metalness:   0.0,
-      side:        THREE.FrontSide,
-    });
-
-    if (this.oceanMesh) {
-      this.oceanMesh.geometry.dispose();
-      (this.oceanMesh.material as THREE.Material).dispose();
-      this.oceanMesh.geometry = oceanGeo;
-      this.oceanMesh.material = oceanMat;
-    } else {
-      this.oceanMesh = new THREE.Mesh(oceanGeo, oceanMat);
-    }
-    this.oceanMesh.visible = fancyOcean && this.params.seaLevel > 0;
-  }
-
-  // -------------------------------------------------------------------------
   // Cloud layer
   // -------------------------------------------------------------------------
 
@@ -463,6 +427,75 @@ export class Planet {
   // Mesh assembly
   // -------------------------------------------------------------------------
 
+  private _createSurfaceMaterial(colorTex: THREE.Texture, dispTex: THREE.Texture): THREE.MeshPhysicalMaterial {
+    const material = new THREE.MeshPhysicalMaterial({
+      map:               colorTex,
+      displacementMap:   dispTex,
+      displacementScale: this.params.elevation,
+      // Centre displacement around radius: terrain spans [radius - 0.5·e, radius + 0.5·e].
+      // Planet visual size = radius regardless of elevation value.
+      displacementBias:  -0.5 * this.params.elevation,
+      roughness:         0.92,
+      metalness:         0.0,
+      clearcoat:         0.0,
+    });
+
+    material.onBeforeCompile = (shader) => {
+      shader.uniforms.uFancyOceanEnabled = { value: this.params.fancyOcean ? 1 : 0 };
+      shader.uniforms.uWaterDeepColor = { value: new THREE.Color(0x0a4a9a) };
+      shader.uniforms.uWaterShallowColor = { value: new THREE.Color(0x2d8fe0) };
+
+      shader.fragmentShader = shader.fragmentShader.replace(
+        'void main() {',
+        `
+        uniform float uFancyOceanEnabled;
+        uniform vec3 uWaterDeepColor;
+        uniform vec3 uWaterShallowColor;
+
+        void main() {
+          float waterDepth = 0.0;
+          float waterBlend = 0.0;
+        `,
+      );
+
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <map_fragment>',
+        `
+        #include <map_fragment>
+        waterDepth = clamp(diffuseColor.a, 0.0, 1.0);
+        waterBlend = smoothstep(0.0, 0.04, waterDepth);
+        diffuseColor.a = 1.0;
+        if (uFancyOceanEnabled > 0.5) {
+          vec3 waterColor = mix(uWaterShallowColor, uWaterDeepColor, clamp(pow(waterDepth, 0.7), 0.0, 1.0));
+          diffuseColor.rgb = mix(diffuseColor.rgb, waterColor, waterBlend);
+        }
+        `,
+      );
+
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <roughnessmap_fragment>',
+        `
+        #include <roughnessmap_fragment>
+        if (uFancyOceanEnabled > 0.5) {
+          roughnessFactor = mix(roughnessFactor, 0.06, waterBlend);
+        }
+        `,
+      );
+
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <metalnessmap_fragment>',
+        `
+        #include <metalnessmap_fragment>
+        if (uFancyOceanEnabled > 0.5) {
+          metalnessFactor = mix(metalnessFactor, 0.02, waterBlend);
+        }
+        `,
+      );
+    };
+
+    return material;
+  }
+
   private _createMesh(): void {
     const { radius, segments, elevation } = this.params;
 
@@ -473,16 +506,7 @@ export class Planet {
     // GPU displacement map: both colour and height are from the same noise evaluation,
     // so their biome edges are pixel-perfect aligned — no CPU/GPU noise mismatch.
     const geo = new THREE.SphereGeometry(radius, segments, segments);
-    const mat = new THREE.MeshStandardMaterial({
-      map:               colorTex,
-      displacementMap:   dispTex,
-      displacementScale: elevation,
-      // Centre displacement around radius: terrain spans [radius - 0.5·e, radius + 0.5·e].
-      // Planet visual size = radius regardless of elevation value.
-      displacementBias:  -0.5 * elevation,
-      roughness:         0.9,
-      metalness:         0.0,
-    });
+    const mat = this._createSurfaceMaterial(colorTex, dispTex);
 
     if (this.mesh) {
       this.mesh.geometry.dispose();
@@ -493,14 +517,11 @@ export class Planet {
       this.mesh = new THREE.Mesh(geo, mat);
     }
 
-    this._buildOcean();
-
     this._buildGrid();
 
     if (!this.group) {
       this.group = new THREE.Group();
       this.group.add(this.mesh);
-      this.group.add(this.oceanMesh);
       this.group.add(this.gridMesh);
     }
 

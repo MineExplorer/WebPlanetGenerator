@@ -13,7 +13,7 @@ uniform float uDetailStrength;
 uniform int   uTopoMap;
 uniform int   uMoistureView;
 uniform int   uTempView;
-uniform int   uFancyOcean; // 1 = transparent water sphere, 0 = show seafloor
+uniform int   uFancyOcean; // 1 = glossy water on main mesh, 0 = show baked ocean texture
 uniform int   uMode; // 0 = colour, 1 = displacement grayscale
 // Climate additive offsets (sliders)
 uniform float uTempOffset;
@@ -297,9 +297,15 @@ void main() {
   float tempH     = clamp(temp     - pow(landH, 3.0) * 3.0 * uHeightFactor, -1.0, 1.0);
   float moistureH = clamp(moisture * (1.0 - 0.6 * landH * uHeightFactor),    0.0, 1.0);
 
-  // When fancy ocean is off, clamp displacement to seaLevel so underwater
-  // terrain is raised flush with the waterline (no underwater holes).
-  float hNDisp = (uFancyOcean == 0) ? max(hN, uSeaLevel) : hN;
+  // Ocean now lives on the main planet mesh, so underwater terrain is always
+  // raised to the waterline for a clean continuous surface.
+  float hNDisp = max(hN, uSeaLevel);
+
+  // Encoded in the baked colour texture alpha so the runtime material can
+  // detect ocean pixels and shade them with a glossy lit material.
+  float waterDepth = (hN < uSeaLevel)
+    ? clamp((uSeaLevel - hN) / max(0.001, uSeaLevel), 0.0, 1.0)
+    : 0.0;
 
   vec3 col;
   if (uTempView != 0) {
@@ -342,6 +348,6 @@ void main() {
   if (uMode == 1) {
     gl_FragColor = vec4(hNDisp, hNDisp, hNDisp, 1.0);
   } else {
-    gl_FragColor = vec4(col, 1.0);
+    gl_FragColor = vec4(col, waterDepth);
   }
 }
