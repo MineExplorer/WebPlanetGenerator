@@ -94,7 +94,8 @@ noiseFolder.add(params, 'moistureMapScale',     0.4, 2.0,  0.05).name('moisture 
 noiseFolder.close();
 
 const climateFolder = gui.addFolder('Climate');
-climateFolder.add(params, 'latitudeFactor',       0.0, 2.0,  0.01).name('latitude factor'        ).onFinishChange(rebuild);
+climateFolder.add(params, 'latitudeFactor',       0.0, 2.0,  0.01).name('latitude factor'  ).onFinishChange(rebuild);
+climateFolder.add(params, 'heightFactor',         0.0, 2.0,  0.01).name('height factor'    ).onFinishChange(rebuild);
 climateFolder.add(params, 'tempOffset',          -1.0, 1.0,  0.01).name('temperature offset'   ).onFinishChange(rebuild);
 climateFolder.add(params, 'moistureOffset',      -0.5, 0.5,  0.01).name('moisture offset'       ).onFinishChange(rebuild);
 

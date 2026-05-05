@@ -33,6 +33,9 @@ uniform float uMoistureMapStrength;
 // Latitude influence factor: 0 = no lat effect, 1 = normal, 2 = extreme
 uniform float uLatitudeFactor;
 
+// Height influence factor: scales lapse-rate cooling and orographic drying
+uniform float uHeightFactor;
+
 // Custom height map — when uUseCustomMap=1 the texture replaces noise-derived hN
 // for both the colour and displacement outputs.
 uniform int       uUseCustomMap;
@@ -168,11 +171,11 @@ vec3 biomeColor(float hN, float temp, float moisture, float seaLvl, vec3 dir, ve
   // Elevation lapse rate: cubic curve keeps low-elevation areas unaffected
   // while aggressively cooling only true peaks (landH^3 is ~0 at foothills,
   // surges to 3.0 at the summit — driving any peak past the snow threshold).
-  bt = clamp(bt - pow(landH, 3.0) * 3.0, -1.0, 1.0);
+  bt = clamp(bt - pow(landH, 3.0) * 3.0 * uHeightFactor, -1.0, 1.0);
 
   // Elevation moisture decline: linear reduction to 20 % of original at landH=1.
   // Models orographic drying — high peaks are significantly more arid.
-  bm = clamp(bm * (1.0 - 0.6 * landH), 0.0, 1.0);
+  bm = clamp(bm * (1.0 - 0.6 * landH * uHeightFactor), 0.0, 1.0);
 
   if (bt < -0.65) {
     float t = min(1.0, (-bt - 0.55) / 0.20);

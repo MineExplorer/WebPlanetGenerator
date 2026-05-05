@@ -45,4 +45,6 @@ export interface PlanetParams {
   moistureMapStrength: number;
   // How strongly latitude drives temperature and moisture (0 = none, 1 = normal, 2 = extreme)
   latitudeFactor: number;
+  // How strongly elevation drives lapse-rate cooling and orographic drying (0 = none, 1 = normal, 2 = extreme)
+  heightFactor: number;
 }

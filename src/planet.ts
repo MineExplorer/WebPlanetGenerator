@@ -51,6 +51,7 @@ export const DEFAULT_PARAMS: PlanetParams = {
   moistureMapScale: 1.2,
   moistureMapStrength: 1,
   latitudeFactor: 1,
+  heightFactor: 1,
 };
 
 // ---------------------------------------------------------------------------
@@ -257,6 +258,7 @@ export class Planet {
         uMoistureMapScale:    { value: this.params.moistureMapScale },
         uMoistureMapStrength: { value: this.params.moistureMapStrength },
         uLatitudeFactor:      { value: this.params.latitudeFactor },
+        uHeightFactor:        { value: this.params.heightFactor },
       },
     });
 
@@ -306,6 +308,7 @@ export class Planet {
     u.uMoistureMapScale.value    = p.moistureMapScale;
     u.uMoistureMapStrength.value = p.moistureMapStrength;
     u.uLatitudeFactor.value      = p.latitudeFactor;
+    u.uHeightFactor.value        = p.heightFactor;
 
     // Custom height map: feed texture directly into the shader so both the colour
     // and displacement passes derive hN from the real map, not from noise.
