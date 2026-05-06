@@ -46,6 +46,7 @@ export const DEFAULT_PARAMS: PlanetParams = {
   cloudHeight: 0.05,
   showClouds: true,
   fancyOcean: true,
+  showIceCaps: true,
   showGrid: false,
   elevationMoisture: true,
   moistureMapScale: 1.2,
@@ -243,6 +244,7 @@ export class Planet {
         uMoistureView:     { value: this.params.moistureView ? 1 : 0 },
         uTempView:         { value: this.params.tempView ? 1 : 0 },
         uFancyOcean:       { value: this.params.fancyOcean ? 1 : 0 },
+        uShowIceCaps:      { value: this.params.showIceCaps ? 1 : 0 },
         uMode:             { value: 0 },
         uTempOffset:        { value: this.params.tempOffset },
         uMoistureOffset:    { value: this.params.moistureOffset },
@@ -296,6 +298,7 @@ export class Planet {
     u.uMoistureView.value      = p.moistureView ? 1 : 0;
     u.uTempView.value          = p.tempView ? 1 : 0;
     u.uFancyOcean.value        = p.fancyOcean ? 1 : 0;
+    u.uShowIceCaps.value       = p.showIceCaps ? 1 : 0;
     u.uTempOffset.value        = p.tempOffset;
     u.uMoistureOffset.value    = p.moistureOffset;
     u.uElevationMoisture.value = p.elevationMoisture ? 1 : 0;
@@ -320,21 +323,14 @@ export class Planet {
     this._renderer.setRenderTarget(this._bakeTarget);
     this._renderer.render(this._bakeScene, this._bakeCam);
 
-    // Pass 2: grayscale hN for displacementMap
-    // Skipped when a custom height map is loaded — use it directly instead.
-    let dispTex: THREE.Texture;
-    if (this._customDispTex) {
-      dispTex = this._customDispTex;
-    } else {
-      u.uMode.value = 1;
-      this._renderer.setRenderTarget(this._dispTarget);
-      this._renderer.render(this._bakeScene, this._bakeCam);
-      dispTex = this._dispTarget.texture;
-    }
+    // Pass 2: grayscale hN for displacementMap.
+    u.uMode.value = 1;
+    this._renderer.setRenderTarget(this._dispTarget);
+    this._renderer.render(this._bakeScene, this._bakeCam);
 
     this._renderer.setRenderTarget(null);
 
-    return { colorTex: this._bakeTarget.texture, dispTex };
+    return { colorTex: this._bakeTarget.texture, dispTex: this._dispTarget.texture };
   }
 
   // -------------------------------------------------------------------------

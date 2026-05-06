@@ -36,6 +36,8 @@ export interface PlanetParams {
   showClouds: boolean;
   // Ocean
   fancyOcean: boolean;
+  // Show polar ice caps in biome view
+  showIceCaps: boolean;
   // Globe grid overlay
   showGrid: boolean;
   // Elevation-based moisture drying

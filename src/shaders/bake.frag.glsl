@@ -14,6 +14,7 @@ uniform int   uTopoMap;
 uniform int   uMoistureView;
 uniform int   uTempView;
 uniform int   uFancyOcean; // 1 = glossy water on main mesh, 0 = show baked ocean texture
+uniform int   uShowIceCaps;
 uniform int   uMode; // 0 = colour, 1 = displacement grayscale
 // Climate additive offsets (sliders)
 uniform float uTempOffset;
@@ -228,6 +229,23 @@ vec3 heightColor(float hN, float seaLvl) {
   return mix(c6, c7, (landH - 0.90) / 0.10);
 }
 
+float iceCapMask(float hN, float seaLvl, float temp, float tempH) {
+  if (uShowIceCaps == 0 || uTopoMap != 0 || uMoistureView != 0 || uTempView != 0) {
+    return 0.0;
+  }
+
+  const float threshold = -0.72;
+  const float thresholdFade = 0.10;
+  const float coastStart = 0.02;
+  const float coastEnd = 0.10;
+
+  float coastalMask = 1.0 - smoothstep(seaLvl + coastStart, seaLvl + coastEnd, hN);
+  float effectiveTemp = (hN < seaLvl) ? temp : tempH;
+  float coldMask = 1.0 - smoothstep(threshold, threshold + thresholdFade, effectiveTemp);
+
+  return coastalMask * coldMask;
+}
+
 void main() {
   // Reconstruct unit-sphere direction from equirectangular UV
   // (matches Three.js SphereGeometry vertex convention exactly)
@@ -297,6 +315,10 @@ void main() {
   float tempH     = clamp(temp     - pow(landH, 3.0) * 3.0 * uHeightFactor, -1.0, 1.0);
   float moistureH = clamp(moisture * (1.0 - 0.6 * landH * uHeightFactor),    0.0, 1.0);
 
+  float iceMask = iceCapMask(hN, uSeaLevel, temp, tempH);
+  float oceanIceMask = iceMask * (1.0 - step(uSeaLevel, hN));
+  float coastIceMask = max(0.0, iceMask - oceanIceMask);
+
   // Ocean now lives on the main planet mesh, so underwater terrain is always
   // raised to the waterline for a clean continuous surface.
   float hNDisp = max(hN, uSeaLevel);
@@ -306,6 +328,7 @@ void main() {
   float waterDepth = (hN < uSeaLevel)
     ? clamp((uSeaLevel - hN) / max(0.001, uSeaLevel), 0.0, 1.0)
     : 0.0;
+  waterDepth *= (1.0 - oceanIceMask);
 
   vec3 col;
   if (uTempView != 0) {
@@ -342,6 +365,12 @@ void main() {
       heightMod = 0.50 + 0.35 * (hN / max(0.001, uSeaLevel));
     }
     col *= heightMod;
+  }
+
+  if (iceMask > 0.0) {
+    vec3 iceColor = vec3(0.486, 0.925, 1.000);
+    float iceBlend = clamp(oceanIceMask + coastIceMask * 0.78, 0.0, 1.0);
+    col = mix(col, iceColor, iceBlend);
   }
 
   // uMode 0 = colour output, 1 = grayscale hNDisp for displacement map

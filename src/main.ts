@@ -4,14 +4,14 @@ import GUI from 'lil-gui';
 import { Planet, DEFAULT_PARAMS } from './planet.js';
 import { PlanetParams } from './types/planetParams.js';
 
-type PrefabParams = Omit<PlanetParams, 'topoMap' | 'moistureView' | 'tempView' | 'fancyOcean' | 'showGrid'>;
+type PrefabParams = Omit<PlanetParams, 'topoMap' | 'moistureView' | 'tempView' | 'fancyOcean' | 'showIceCaps' | 'showGrid'>;
 
 interface PlanetPrefabFile {
   version: 1;
   params: PrefabParams;
 }
 
-const EXCLUDED_PREFAB_KEYS = ['topoMap', 'moistureView', 'tempView', 'fancyOcean', 'showGrid'] as const;
+const EXCLUDED_PREFAB_KEYS = ['topoMap', 'moistureView', 'tempView', 'fancyOcean', 'showIceCaps', 'showGrid'] as const;
 
 // ---------------------------------------------------------------------------
 // Renderer
@@ -199,6 +199,7 @@ appearanceFolder.add(params, 'fancyOcean').name('fancy ocean').onChange((v: bool
   planet.update(params);
   updateZoom();
 });
+appearanceFolder.add(params, 'showIceCaps').name('ice caps').onChange(rebuild);
 appearanceFolder.add(lightingState, 'sunShadow').name('sun shadow').onChange((v: boolean) => {
   sun.intensity          = 1.4;
   ambientLight.intensity = 0.8;
