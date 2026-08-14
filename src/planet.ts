@@ -399,9 +399,9 @@ export class Planet {
     this.gridMesh.visible = showGrid;
   }
 
-  private _buildClouds(): void {
+  private _buildClouds(dispTex: THREE.Texture): void {
     if (!this._cloudLayer) {
-      this._cloudLayer = new CloudLayer(this.params, this._renderer);
+      this._cloudLayer = new CloudLayer(this.params, this._renderer, dispTex);
     } else {
       this._cloudLayer.build(this.params);
     }
@@ -521,7 +521,7 @@ export class Planet {
       this.group.add(this.gridMesh);
     }
 
-    this._buildClouds();
+    this._buildClouds(dispTex);
 
     if (!this.group.children.includes(this._cloudLayer.group)) {
       this.group.add(this._cloudLayer.group);

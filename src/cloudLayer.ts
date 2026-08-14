@@ -60,6 +60,7 @@ export class CloudLayer {
 
   // Render material (cheap: one texture tap + limb darkening)
   private _renderMat!: THREE.ShaderMaterial;
+  private _terrainHeightTex: THREE.Texture;
   private _time      = 0;
   private _lastBake  = -BAKE_INTERVAL; // force immediate first bake
   private _planetRadius = 1;
@@ -72,8 +73,9 @@ export class CloudLayer {
   private _bakeTarget!: THREE.WebGLRenderTarget;
   private _bakeMat!:    THREE.ShaderMaterial;
 
-  constructor(params: PlanetParams, renderer: THREE.WebGLRenderer) {
-    this._renderer = renderer;
+  constructor(params: PlanetParams, renderer: THREE.WebGLRenderer, terrainHeightTex: THREE.Texture) {
+    this._renderer         = renderer;
+    this._terrainHeightTex = terrainHeightTex;
     this.group = new THREE.Group();
     this._initBakePipeline();
     this.build(params);
@@ -134,13 +136,24 @@ export class CloudLayer {
         vertexShader:   CLOUD_RENDER_VERT,
         fragmentShader: CLOUD_RENDER_FRAG,
         uniforms: {
-          uCloudTex: { value: this._bakeTarget.texture },
+          uCloudTex:          { value: this._bakeTarget.texture },
+          uTerrainHeightTex:  { value: this._terrainHeightTex },
+          uPlanetRadius:      { value: 1 },
+          uTerrainElevation:  { value: 0 },
+          uCloudHeight:       { value: 0 },
+          uCloudRotationY:    { value: 0 },
         },
         transparent: true,
         depthWrite:  false,
         side:        THREE.FrontSide,
       });
     }
+
+    const ru = this._renderMat.uniforms;
+    ru.uTerrainHeightTex.value = this._terrainHeightTex;
+    ru.uPlanetRadius.value     = radius;
+    ru.uTerrainElevation.value = params.elevation;
+    ru.uCloudHeight.value      = cloudHeight;
 
     if (this.mesh) {
       this.mesh.geometry.dispose();
@@ -160,6 +173,7 @@ export class CloudLayer {
    */
   tick(dt: number, camDist?: number): void {
     this._time += dt;
+    this._renderMat.uniforms.uCloudRotationY.value = this.group.rotation.y;
 
     // Resize bake target if zoom level crossed a resolution threshold
     if (camDist !== undefined) {
