@@ -5,6 +5,7 @@ uniform float uTime;
 uniform float uCloudScale;
 uniform float uCloudDensity;
 uniform float uCloudOpacity;
+uniform float uWindPhase;
 
 // ---------------------------------------------------------------------------
 // Simplex 3-D noise — Ashima Arts (MIT licence)
@@ -69,24 +70,58 @@ float cfbm(vec3 p, int octaves) {
   return val/max(tot,0.0001);
 }
 
+vec3 dirAt(float phi, float theta) {
+  return vec3(-sin(phi)*cos(theta), cos(phi), sin(phi)*sin(theta));
+}
+
+// Eastward drift rate per circulation band. Constant within a band, so each
+// band advects as a rigid rotation — the only transform that never distorts
+// the noise field. Bands are crossfaded rather than their rates interpolated,
+// which is what would reintroduce shear.
+const float RATE_EASTERLY = -0.55; // trades and polar easterlies
+const float RATE_WESTERLY =  1.00; // mid-latitude jet
+
+// Domain offsets keep neighbouring bands decorrelated so a crossfade reads as
+// a dissolve instead of a double image.
+const vec3 SEED_TROPIC = vec3(  0.0,  0.0,  0.0);
+const vec3 SEED_MIDLAT = vec3( 17.3,  5.1,  9.7);
+const vec3 SEED_POLAR  = vec3(-11.2, 23.4, -6.8);
+
+float cloudField(float phi, float theta, float rate, vec3 seed) {
+  vec3 dir = dirAt(phi, theta - uWindPhase * rate);
+
+  // Domain-warp for organic puffiness
+  vec3 wp = dir * (uCloudScale * 0.55) + seed;
+  vec3 warp = vec3(
+    cfbm(wp + vec3( uTime*0.018,  0.000,       0.000       ), 2),
+    cfbm(wp + vec3( 0.000,        uTime*0.015, uTime*0.013 ), 2),
+    cfbm(wp + vec3( uTime*0.014,  uTime*0.019, 0.000       ), 2)
+  );
+
+  return cfbm(dir * uCloudScale + seed + warp * 0.72, 4);
+}
+
 void main() {
-  // Reconstruct unit-sphere direction from equirectangular UV
   float phi   = vUv.y * 3.14159265359;
   float theta = vUv.x * 6.28318530718;
-  vec3 dir = vec3(-sin(phi)*cos(theta), cos(phi), sin(phi)*sin(theta));
+  float lat   = degrees(asin(abs(cos(phi))));
+
+  // Pick the two bands straddling this latitude and how far between them we are.
+  bool  upper = lat >= 45.0;
+  float rateA = upper ? RATE_WESTERLY : RATE_EASTERLY;
+  float rateB = upper ? RATE_EASTERLY : RATE_WESTERLY;
+  vec3  seedA = upper ? SEED_MIDLAT   : SEED_TROPIC;
+  vec3  seedB = upper ? SEED_POLAR    : SEED_MIDLAT;
+  float k     = upper ? smoothstep(55., 65., lat) : smoothstep(25., 35., lat);
+
+  // No pole fade needed: a rigid Y-rotation has the pole as a fixed point.
+  float cloud = cloudField(phi, theta, rateA, seedA);
+  if (k > 0.0) {
+    cloud = mix(cloud, cloudField(phi, theta, rateB, seedB), k);
+  }
 
   float lo = uCloudDensity - 0.10;
   float hi = uCloudDensity + 0.32;
-
-  // Domain-warp for organic puffiness
-  float ws = uCloudScale * 0.55;
-  vec3 warp = vec3(
-    cfbm(dir * ws + vec3( uTime*0.018,  0.000,       0.000       ), 2),
-    cfbm(dir * ws + vec3( 0.000,        uTime*0.015, uTime*0.013 ), 2),
-    cfbm(dir * ws + vec3( uTime*0.014,  uTime*0.019, 0.000       ), 2)
-  );
-
-  float cloud = cfbm(dir * uCloudScale + warp * 0.72, 4);
   float cover = smoothstep(lo, hi, cloud);
 
   // Colour: bright white core, soft blue-tinted wispy edges

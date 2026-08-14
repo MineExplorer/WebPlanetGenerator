@@ -33,6 +33,8 @@ export interface PlanetParams {
   cloudDensity: number;
   cloudOpacity: number;
   cloudHeight: number;
+  // Zonal wind strength driving the latitude circulation bands
+  cloudWindSpeed: number;
   showClouds: boolean;
   // Ocean
   fancyOcean: boolean;

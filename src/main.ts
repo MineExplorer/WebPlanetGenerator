@@ -216,6 +216,7 @@ cloudFolder.add(params, 'cloudHeight',  0.01, 0.12, 0.005).name('altitude').onFi
 cloudFolder.add(params, 'cloudScale',   0.5,  6.0,  0.1  ).name('scale').onFinishChange(rebuildClouds);
 cloudFolder.add(params, 'cloudDensity', 0.0,  0.6,  0.01 ).name('coverage').onFinishChange(rebuildClouds);
 cloudFolder.add(params, 'cloudOpacity', 0.1,  1.0,  0.01 ).name('opacity').onFinishChange(rebuildClouds);
+cloudFolder.add(params, 'cloudWindSpeed', 0.0, 0.15, 0.001).name('wind speed').onFinishChange(rebuildClouds);
 
 const prefabFolder = gui.addFolder('Prefabs');
 prefabFolder.add({ exportJson: downloadPrefab }, 'exportJson').name('💾 Export JSON');
@@ -328,8 +329,7 @@ function animate(): void {
     fpsAccum  = 0;
   }
 
-  planet.group.rotation.y      += paused ? 0 : 0.0008;
-  planet.cloudGroup.rotation.y += paused ? 0 : 0.00035;
+  planet.group.rotation.y += paused ? 0 : 0.0008;
   planet.tickClouds(paused ? 0 : dt, camera.position.length());
 
   // When sun shadow is disabled, keep the light locked to the camera so every

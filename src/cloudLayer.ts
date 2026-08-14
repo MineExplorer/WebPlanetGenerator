@@ -64,6 +64,8 @@ export class CloudLayer {
   private _time      = 0;
   private _lastBake  = -BAKE_INTERVAL; // force immediate first bake
   private _planetRadius = 1;
+  private _windSpeed = 0.02;
+  private _windPhase = 0; // accumulated so speed changes never jump the clouds
   private _bakeW     = BAKE_RES_FAR[0] as number;
   private _bakeH     = BAKE_RES_FAR[1] as number;
 
@@ -99,6 +101,7 @@ export class CloudLayer {
         uCloudScale:   { value: 2.5 },
         uCloudDensity: { value: 0.28 },
         uCloudOpacity: { value: 0.90 },
+        uWindPhase:    { value: 0 },
       },
     });
     const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this._bakeMat);
@@ -106,7 +109,8 @@ export class CloudLayer {
   }
 
   private _runBake(): void {
-    this._bakeMat.uniforms.uTime.value = this._time;
+    this._bakeMat.uniforms.uTime.value      = this._time;
+    this._bakeMat.uniforms.uWindPhase.value = this._windPhase;
     this._renderer.setRenderTarget(this._bakeTarget);
     this._renderer.render(this._bakeScene, this._bakeCam);
     this._renderer.setRenderTarget(null);
@@ -127,6 +131,7 @@ export class CloudLayer {
     bu.uCloudScale.value   = cloudScale;
     bu.uCloudDensity.value = cloudDensity;
     bu.uCloudOpacity.value = cloudOpacity;
+    this._windSpeed        = params.cloudWindSpeed;
 
     // Force a fresh bake immediately after parameter change
     this._lastBake = -BAKE_INTERVAL;
@@ -173,6 +178,7 @@ export class CloudLayer {
    */
   tick(dt: number, camDist?: number): void {
     this._time += dt;
+    this._windPhase += dt * this._windSpeed;
     this._renderMat.uniforms.uCloudRotationY.value = this.group.rotation.y;
 
     // Resize bake target if zoom level crossed a resolution threshold

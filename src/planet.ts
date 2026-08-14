@@ -44,6 +44,7 @@ export const DEFAULT_PARAMS: PlanetParams = {
   cloudDensity: 0.14,
   cloudOpacity: 0.90,
   cloudHeight: 0.05,
+  cloudWindSpeed: 0.02,
   showClouds: true,
   fancyOcean: true,
   showIceCaps: true,
