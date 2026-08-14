@@ -117,7 +117,18 @@ void main() {
   // No pole fade needed: a rigid Y-rotation has the pole as a fixed point.
   float cloud = cloudField(phi, theta, rateA, seedA);
   if (k > 0.0) {
-    cloud = mix(cloud, cloudField(phi, theta, rateB, seedB), k);
+    float strip = 4.0 * k * (1.0 - k); // 1 mid-strip, 0 at the band edges
+
+    // Blend only across the middle of the strip so each band stays pure right
+    // up to the handover, and merge the raw fields so overlapping densities
+    // form one silhouette instead of stacking as two.
+    float e  = mix(0.05, 0.18, strip);
+    float kk = smoothstep(0.5 - e, 0.5 + e, k);
+    cloud = mix(cloud, cloudField(phi, theta, rateB, seedB), kk);
+
+    // Thin the deck where the bands shear past each other: the horse latitudes
+    // at 30 and the frontal lane at 60.
+    cloud -= 0.18 * strip;
   }
 
   float lo = uCloudDensity - 0.10;
