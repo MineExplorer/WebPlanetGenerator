@@ -184,6 +184,8 @@ seedFolder.add({ regen() {
 } }, 'regen').name('🎲 Randomise seed');
 
 const lightingState = { sunShadow: true };
+const cameraState = { followPlanet: false };
+const Y_AXIS = new THREE.Vector3(0, 1, 0);
 
 const mapState = { mode: 'biome' };
 const appearanceFolder = gui.addFolder('Appearance');
@@ -207,6 +209,7 @@ appearanceFolder.add(lightingState, 'sunShadow').name('sun shadow').onChange((v:
 appearanceFolder.add(params, 'showGrid').name('grid').onChange((v: boolean) => {
   planet.gridMesh.visible = v;
 });
+appearanceFolder.add(cameraState, 'followPlanet').name('camera follows spin');
 
 const cloudFolder = gui.addFolder('Clouds');
 cloudFolder.add(params, 'showClouds').name('show clouds').onChange((v: boolean) => {
@@ -329,7 +332,9 @@ function animate(): void {
     fpsAccum  = 0;
   }
 
-  planet.group.rotation.y += paused ? 0 : 0.0008;
+  const spin = paused ? 0 : 0.0008;
+  planet.group.rotation.y += spin;
+  if (cameraState.followPlanet) camera.position.applyAxisAngle(Y_AXIS, spin);
   planet.tickClouds(paused ? 0 : dt, camera.position.length());
 
   // When sun shadow is disabled, keep the light locked to the camera so every
