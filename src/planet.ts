@@ -9,6 +9,10 @@ import { PlanetParams } from './types/planetParams';
 // ---------------------------------------------------------------------------
 
 interface SampleResult {
+  /** Continent-scale height contribution */
+  continent: number;
+  /** High-frequency detail contribution, already scaled by detailStrength */
+  detail: number;
   /** Raw (uncalibrated) height value from continent + detail noise */
   h: number;
   /** Temperature noise value, roughly -1..1 */
@@ -59,6 +63,15 @@ export const DEFAULT_PARAMS: PlanetParams = {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+function clamp01(v: number): number {
+  return v < 0 ? 0 : v > 1 ? 1 : v;
+}
+
+function smoothstep(edge0: number, edge1: number, x: number): number {
+  const t = clamp01((x - edge0) / Math.max(1e-6, edge1 - edge0));
+  return t * t * (3 - 2 * t);
+}
 
 /** Fractional Brownian Motion — returns value roughly in [-1, 1]. */
 function fbm(
@@ -115,6 +128,12 @@ export class Planet {
   private _hMin = -1;
   private _hMax =  1;
 
+  /**
+   * Sea level expressed in normalised [0,1] height space — the threshold that
+   * actually puts `params.seaLevel` of the surface under water for this seed.
+   */
+  private _seaLevelN = 0.5;
+
   // Reusable GPU bake objects — created once, reused on every rebuild
   private _bakeScene!:  THREE.Scene;
   private _bakeCam!:    THREE.OrthographicCamera;
@@ -145,13 +164,20 @@ export class Planet {
   }
 
   /**
-   * Sample ~2 000 Fibonacci-distributed points on the unit sphere to find
-   * the actual min/max of the raw h field for this seed + noise config.
-   * This lets _norm() map h to a true [0, 1] regardless of FBM amplitude.
+   * Sample ~2 000 Fibonacci-distributed points on the unit sphere, then derive
+   * both the [0,1] remap range and the sea-level threshold from that sample.
+   *
+   * Sea level is taken as a quantile of the height distribution rather than a
+   * fixed cut through a min/max-normalised field, so `params.seaLevel` is the
+   * literal fraction of the surface under water on every seed.
+   *
+   * Iterated, because the shader attenuates detail noise below sea level, so
+   * the height field depends on the very threshold being solved for.
    */
   private _calibrate(): void {
-    let hMin = Infinity, hMax = -Infinity;
     const N = 2000;
+    const cont = new Float64Array(N);
+    const det  = new Float64Array(N);
     const goldenAngle = Math.PI * (3 - Math.sqrt(5));
     for (let i = 0; i < N; i++) {
       const cosTheta = 1 - (i / (N - 1)) * 2;       // y component
@@ -161,12 +187,40 @@ export class Planet {
       const x = -Math.cos(phi) * sinTheta;
       const y = cosTheta;
       const z =  Math.sin(phi) * sinTheta;
-      const { h } = this._sample(x, y, z);
-      if (h < hMin) hMin = h;
-      if (h > hMax) hMax = h;
+      const s = this._sample(x, y, z);
+      cont[i] = s.continent;
+      det[i]  = s.detail;
     }
-    this._hMin = hMin;
-    this._hMax = hMax;
+
+    const h = new Float64Array(N);
+    const qIndex = Math.min(N - 1, Math.max(0,
+      Math.round(this.params.seaLevel * (N - 1))));
+
+    let hMin = -1, hMax = 1, seaN = 0.5;
+    for (let pass = 0; pass < 3; pass++) {
+      const range0 = Math.max(0.0001, hMax - hMin);
+      for (let i = 0; i < N; i++) {
+        // Mirrors the detail attenuation in bake.frag.glsl
+        const hCont = clamp01((cont[i] - hMin) / range0);
+        const f     = pass === 0
+          ? 1
+          : smoothstep(seaN - 0.05, seaN + 0.05, hCont);
+        h[i] = cont[i] + det[i] * (0.5 + 0.5 * f);
+      }
+
+      hMin = Infinity; hMax = -Infinity;
+      for (let i = 0; i < N; i++) {
+        if (h[i] < hMin) hMin = h[i];
+        if (h[i] > hMax) hMax = h[i];
+      }
+
+      const sorted = Array.from(h).sort((a, b) => a - b);
+      seaN = (sorted[qIndex] - hMin) / Math.max(0.0001, hMax - hMin);
+    }
+
+    this._hMin      = hMin;
+    this._hMax      = hMax;
+    this._seaLevelN = seaN;
   }
 
   /** Sample all four noise layers at a unit-sphere point (x, y, z). */
@@ -186,7 +240,7 @@ export class Planet {
     const moisture = fbm(this._noise,
       x + this._offMoisture.x, y + this._offMoisture.y, z + this._offMoisture.z,
       biomeScale * 0.8, 3, 0.50, 2.0);
-    return { h, temp, moisture };
+    return { continent, detail, h, temp, moisture };
   }
 
   // -------------------------------------------------------------------------
@@ -234,7 +288,7 @@ export class Planet {
       uniforms: {
         uHMin:             { value: this._hMin },
         uHMax:             { value: this._hMax },
-        uSeaLevel:         { value: this.params.seaLevel },
+        uSeaLevel:         { value: this._seaLevelN },
         uShoreWidth:       { value: this.params.shoreWidth },
         uContinentScale:   { value: this.params.continentScale },
         uContinentOctaves: { value: this.params.continentOctaves },
@@ -288,7 +342,8 @@ export class Planet {
     const p = this.params;
     u.uHMin.value             = this._hMin;
     u.uHMax.value             = this._hMax;
-    u.uSeaLevel.value         = p.seaLevel;
+    // A custom map supplies hN directly, so the quantile solve does not apply.
+    u.uSeaLevel.value         = this._customDispTex ? p.seaLevel : this._seaLevelN;
     u.uShoreWidth.value       = p.shoreWidth;
     u.uContinentScale.value   = p.continentScale;
     u.uContinentOctaves.value = p.continentOctaves;
