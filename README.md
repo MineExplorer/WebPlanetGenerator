@@ -1,8 +1,27 @@
 # Web Planet Generator
 
-A minimal template project that renders a procedural 3D planet using Three.js, Simplex noise and a small GUI for parameters. Built with Vite for fast local development.
+An interactive procedural planet generator that runs in the browser. Terrain, climate and biomes are generated from seeded Simplex noise, baked to textures on the GPU with GLSL shaders, and rendered with Three.js. A [lil-gui](https://lil-gui.georgealways.com/) panel controls all parameters.
 
-Quick start
+## Tech stack
+
+- [TypeScript](https://www.typescriptlang.org/) and [Vite](https://vitejs.dev/) (with `vite-plugin-glsl` for importing `.glsl` shaders)
+- [Three.js](https://threejs.org/) — WebGL rendering, `OrbitControls` for camera
+- [simplex-noise](https://www.npmjs.com/package/simplex-noise) — seeded noise
+- [lil-gui](https://lil-gui.georgealways.com/) — parameter panel
+
+## Features
+
+- Procedural terrain: continents (multi-octave noise), high-frequency detail, sea level and shore width
+- Climate model: temperature and moisture driven by latitude, elevation (lapse-rate cooling, orographic drying) and noise, with adjustable offsets
+- Biome colouring, polar ice caps, and optional fancy ocean shading
+- Map views: biome, topographic, precipitation and temperature
+- Animated cloud layer with zonal wind bands
+- Optional globe grid overlay, sun shadow, starfield background and FPS counter
+- Custom height map: load an image to replace the noise-generated terrain
+- Prefabs: export/import the current parameters as a JSON file
+- Orbit camera (optionally following the planet's spin); press `Space` to pause/resume rotation
+
+## Quick start
 
 1. Install dependencies:
 
@@ -18,14 +37,13 @@ npm run dev
 
 3. Open the URL printed by Vite (usually http://localhost:5173)
 
-Files
+4. Build for production (`npm run build`) and preview it locally (`npm run preview`).
 
-- `index.html` - app entry
-- `src/main.js` - scene, renderer, GUI
-- `src/planet.js` - planet generation and update logic
-- `src/styles.css` - minimal styling
+## Notes
 
-Notes
+- Tweak parameters in the GUI (Shape, Noise, Climate, Seed, Appearance, Clouds, Prefabs, Height Map);
+- To produce a different planet, change the `seed` in the Seed folder or press "🎲 Randomise seed".
 
-- Tweak parameters in the GUI to change noise, elevation and resolution.
-- To produce a different planet, change the `seed` in the GUI and hit "regen".
+## Screenshots
+<img src="docs/screenshots/planet view.png" width="600" alt="Planet view">
+<img src="docs/screenshots/heat map.png" width="600" alt="Temperature map">
